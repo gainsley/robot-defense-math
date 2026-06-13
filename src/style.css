@@ -1,3 +1,35 @@
+@font-face {
+  font-family: "Neuropol";
+  src: url("./assets/fonts/NEUROPOL.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Unitblock";
+  src: url("./assets/fonts/Unitblock.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Transformers";
+  src: url("./assets/fonts/Transformers.TTF") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "GlacialIndifference";
+  src: url("./assets/fonts/GlacialIndifference-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 html,
 body,
 #app {
