@@ -7,6 +7,9 @@ const app = new Application();
 (async () => {
   await document.fonts.load('400 24px "Unitblock"');
   await document.fonts.load('400 24px "GlacialIndifference"');
+  await document.fonts.load('400 24px "Transformers"');
+  await document.fonts.load('400 24px "Zekton"');
+  await document.fonts.load('400 24px "Neuropol"');
   await document.fonts.ready;
 
   await app.init({

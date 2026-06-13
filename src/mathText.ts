@@ -4,7 +4,7 @@ type MathPart =
   | { kind: 'text'; value: string }
   | { kind: 'fraction'; numerator: string; denominator: string };
 
-const FONT_FAMILY = 'GlacialIndifference';
+const MathFont = "Zekton"
 
 export function renderMathText(target: Container, expression: string, maxWidth: number, fontSize: number): void {
   target.removeChildren().forEach((child) => child.destroy());
@@ -61,7 +61,7 @@ function createText(value: string, fontSize: number): Text {
   return new Text({
     text: value,
     style: {
-      fontFamily: FONT_FAMILY,
+      fontFamily: MathFont,
       fontSize,
       fill: 0xb7f9ff,
       fontWeight: '700',

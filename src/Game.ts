@@ -12,24 +12,31 @@ import { LEVEL_QUESTIONS } from './questions';
 import { renderMathText } from './mathText';
 import { SoundSystem } from './SoundSystem';
 import { createInitialWeapons } from './weapons';
+import { EffectsSystem } from './EffectsSystem';
 import type { Enemy, Explosion, Projectile, Question, Upgrade, Weapon, WeaponKind } from './types';
-import { BevelFilter, DropShadowFilter } from 'pixi-filters';
 
 type QuestionButton = Container & {
   answerText: string;
   labelLayer: Container;
 };
 
+const DefaultFont = "Unitblock"
+const DefaultMeterFont = "Zekton"
+const DetailTextFont = "GlacialIndifference"
+// math font is in src/mathText.ts
+
 export class Game {
   private readonly app: Application;
   private readonly scene = new Container();
   private readonly world = new Container();
+  private readonly effectsLayer = new Container();
   private readonly ui = new Container();
   private readonly overlay = new Container();
   private readonly background = new Graphics();
   private readonly machine = new Container();
   private readonly machineArt = new Graphics();
   private readonly sounds = new SoundSystem();
+  private readonly effects = new EffectsSystem(this.effectsLayer);
   private readonly comboBar = new Graphics();
   private readonly upgradeBar = new Graphics();
   private readonly healthBar = new Graphics();
@@ -41,12 +48,12 @@ export class Game {
   private readonly debugUpgradeButtonBg = new Graphics();
   private readonly debugUpgradeButtonText = new Text({
     text: 'UPGRADE',
-    style: { fontFamily: 'Unitblock', fontSize: 14, fill: 0xb7f9ff, fontWeight: '700', letterSpacing: 1 },
+    style: { fontFamily: DefaultFont, fontSize: 14, fill: 0xb7f9ff, fontWeight: '700', letterSpacing: 1 },
   });
   private readonly questionText = new Text({
     text: '',
     style: {
-      fontFamily: 'Unitblock',
+      fontFamily: DefaultFont,
       fontSize: 24,
       fill: 0x7ff7ff,
       fontWeight: '700',
@@ -56,16 +63,16 @@ export class Game {
   });
   private readonly statusText = new BitmapText({
     text: '',
-    style: { fontFamily: 'Unitblock', fontSize: 17, fill: 0xb7f9ff },
+    style: { fontFamily: DefaultFont, fontSize: 17, fill: 0xb7f9ff },
   });
   private readonly upgradeMeterText = new Text({
     text: 'Upgrade Meter',
-    style: { fontFamily: 'Unitblock', fontSize: 18, fill: 0xb7f9ff, fontWeight: '700', letterSpacing: 1 },
+    style: { fontFamily: DefaultMeterFont, fontSize: 18, fill: 0xb7f9ff, fontWeight: '700', letterSpacing: 1 },
   });
   private readonly comboMeterText = new Text({
     text: 'Combo Meter!',
     style: {
-      fontFamily: 'Unitblock',
+      fontFamily: DefaultMeterFont,
       fontSize: 20,
       fill: 0xffffff,
       fontWeight: '700',
@@ -112,7 +119,7 @@ export class Game {
   }
 
   public start(): void {
-    this.scene.addChild(this.background, this.world, this.ui, this.overlay);
+    this.scene.addChild(this.background, this.world, this.effectsLayer, this.ui, this.overlay);
     this.world.addChild(this.machine);
     this.machine.addChild(this.machineArt);
     this.settingsButton.addChild(this.settingsButtonBg, this.settingsButtonIcon);
@@ -174,6 +181,11 @@ export class Game {
     this.updateWeapons(dt);
     this.updateProjectiles(dt);
     this.updateExplosions(dt);
+    this.effects.update(dt);
+    this.world.x = this.effects.shakeX;
+    this.world.y = this.effects.shakeY;
+    this.effectsLayer.x = this.effects.shakeX;
+    this.effectsLayer.y = this.effects.shakeY;
     if (this.frenzyTimerMs > 0 || this.wasFrenzyActive) {
       this.drawMachine();
     }
@@ -502,6 +514,7 @@ export class Game {
     this.frenzyTimerMs = 3200;
     this.combo = 0;
     this.sounds.frenzy();
+    this.effects.spawnFrenzyBurst(this.layout.machineX, this.layout.machineY - 42);
 
     if (this.enemies.length === 0) {
       return;
@@ -562,7 +575,7 @@ export class Game {
     const title = new Text({
       text: 'Audio settings',
       style: {
-        fontFamily: 'Unitblock',
+        fontFamily: DefaultFont,
         fontSize: 28,
         fill: 0xb7f9ff,
         fontWeight: '700',
@@ -575,7 +588,7 @@ export class Game {
 
     const valueText = new Text({
       text: '',
-      style: { fontFamily: 'Unitblock', fontSize: 18, fill: 0xbae6fd, fontWeight: '700', letterSpacing: 1 },
+      style: { fontFamily: DefaultFont, fontSize: 18, fill: 0xbae6fd, fontWeight: '700', letterSpacing: 1 },
     });
     valueText.x = 28;
     valueText.y = 88;
@@ -646,7 +659,7 @@ export class Game {
     const bg = new Graphics();
     const text = new Text({
       text: label,
-      style: { fontFamily: 'Unitblock', fontSize: 18, fill: 0xb7f9ff, fontWeight: '700', letterSpacing: 1 },
+      style: { fontFamily: DefaultFont, fontSize: 18, fill: 0xb7f9ff, fontWeight: '700', letterSpacing: 1 },
     });
     bg.rect(0, 0, width, height).fill(0x0b1f33).stroke({ width: 3, color: 0x38bdf8 });
     text.anchor.set(0.5);
@@ -686,7 +699,7 @@ export class Game {
     const title = new Text({
       text: 'Choose an upgrade',
       style: {
-        fontFamily: 'Unitblock',
+        fontFamily: DefaultFont,
         fontSize: 36,
         fill: 0xb7f9ff,
         fontWeight: '700',
@@ -719,7 +732,7 @@ export class Game {
     const title = new Text({
       text: upgrade.label,
       style: {
-        fontFamily: 'Unitblock',
+        fontFamily: DefaultFont,
         fontSize: 24,
         fill: 0xb7f9ff,
         fontWeight: '700',
@@ -733,7 +746,7 @@ export class Game {
     const description = new Text({
       text: upgrade.description,
       style: {
-        fontFamily: 'GlacialIndifference',
+        fontFamily: DetailTextFont,
         fontSize: 18,
         fill: 0xbae6fd,
         wordWrap: true,
@@ -871,6 +884,7 @@ export class Game {
     const dx = target.x - startX;
     const dy = target.y - startY;
     const length = Math.max(1, Math.hypot(dx, dy));
+    this.effects.spawnMuzzleFlash(startX, startY, weapon.turret.rotation, weapon.kind);
     this.spawnProjectile({
       x: startX,
       y: startY,
@@ -934,6 +948,8 @@ export class Game {
   private drawLightning(weapon: Weapon, target: Enemy): void {
     const muzzle = this.turretMuzzle(weapon, 0);
     const bolt = new Graphics();
+    this.effects.spawnMuzzleFlash(muzzle.x, muzzle.y, weapon.turret.rotation, weapon.kind);
+    this.effects.spawnImpact(target.x, target.y, weapon.kind);
     bolt.moveTo(muzzle.x, muzzle.y);
     for (let i = 1; i <= 5; i += 1) {
       const t = i / 5;
@@ -952,11 +968,13 @@ export class Game {
       projectile.x += (projectile.vx / 1000) * dt;
       projectile.y += (projectile.vy / 1000) * dt;
       this.drawProjectile(projectile);
+      this.effects.spawnTrail(projectile.x, projectile.y, projectile.kind);
 
       if (projectile.fromEnemy) {
         if (Math.hypot(projectile.x - this.layout.machineX, projectile.y - this.layout.machineY) < 34) {
           this.machineHp = Math.max(0, this.machineHp - projectile.damage);
           this.sounds.hit();
+          this.effects.spawnImpact(projectile.x, projectile.y, projectile.kind);
           this.spawnExplosion(projectile.x, projectile.y, 24);
           this.removeProjectile(i);
         }
@@ -965,6 +983,7 @@ export class Game {
         if (enemy) {
           this.damageEnemy(enemy, projectile.damage);
           this.sounds.hit();
+          this.effects.spawnImpact(projectile.x, projectile.y, projectile.kind);
           this.spawnExplosion(projectile.x, projectile.y, projectile.kind === 'missileLauncher' ? 46 : 20);
           this.removeProjectile(i);
         }
@@ -1056,6 +1075,7 @@ export class Game {
     this.sounds.boss();
     const { playX, playW } = this.layout;
     this.spawnEnemy('boss', playX + playW / 2);
+    this.effects.spawnBossEntrance(playX + playW / 2, this.layout.playY + 80);
     for (let i = 0; i < 4; i += 1) {
       this.spawnEnemy('small', playX + 80 + i * Math.max(60, (playW - 160) / 3));
     }
@@ -1101,6 +1121,7 @@ export class Game {
     const dx = this.layout.machineX - enemy.x;
     const dy = this.layout.machineY - enemy.y;
     const length = Math.max(1, Math.hypot(dx, dy));
+    this.effects.spawnMuzzleFlash(enemy.x, enemy.y + 18, Math.atan2(dy, dx) + Math.PI / 2, 'alienBolt');
     this.spawnProjectile({
       x: enemy.x,
       y: enemy.y + 18,
@@ -1121,6 +1142,7 @@ export class Game {
     const graphic = new Graphics();
     this.explosions.push({ graphic, x, y, ageMs: 0, durationMs: 360, maxRadius });
     this.world.addChild(graphic);
+    this.effects.spawnExplosion(x, y, maxRadius >= 60);
   }
 
   private updateExplosions(dt: number): void {
