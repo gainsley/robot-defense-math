@@ -37,7 +37,7 @@ export function createInitialWeapons(): Weapon[] {
     createWeapon('railGun', 'Rail gun', 1, 900, 18, true, 0, -10, 76),
     createWeapon('machineGun', 'Machine gun', 0, 1200, 5, false, -38, 0, 58),
     createWeapon('missileLauncher', 'Missile launcher', 0, 1800, 30, false, 48, 0, 52),
-    createWeapon('lightningGun', 'Lightning gun', 0, 1300, 10, false, 0, -36, 70),
+    createWeapon('lightningGun', 'Lightning gun', 0, 1700, 10, false, -86, -14, 66),
     createWeapon('droneLauncher', 'Drone launcher', 0, 2200, 8, false, 74, -14, 42),
   ];
 }

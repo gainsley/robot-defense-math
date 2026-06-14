@@ -1,3 +1,6 @@
+import { Howler } from 'howler';
+import { sfx } from "./soundfx";
+
 type SoundName =
   | 'rail'
   | 'machine'
@@ -31,6 +34,9 @@ export class SoundSystem {
     if (context.state === 'suspended') {
       void context.resume();
     }
+    if (Howler.ctx?.state === 'suspended') {
+      void Howler.ctx.resume();
+    }
   }
 
   public getVolume(): number {
@@ -41,19 +47,24 @@ export class SoundSystem {
     this.volume = Math.max(0, Math.min(1, volume));
     const context = this.getContext();
     this.getOutput().gain.setTargetAtTime(this.volume * this.outputBoost, context.currentTime, 0.015);
+    Howler.volume(this.volume);
   }
 
   public weapon(kind: string): void {
     if (kind === 'railGun') {
-      this.sweep('rail', 220, 95, 95, 'triangle', 0.075, 0.08);
-      this.tone('rail', 130, 70, 'sine', 0.05, 0.08);
+      sfx.lasrgun.play();
+      //this.sweep('rail', 220, 95, 95, 'triangle', 0.075, 0.08);
+      //this.tone('rail', 130, 70, 'sine', 0.05, 0.08);
     } else if (kind === 'machineGun') {
-      this.tone('machine', 360 + Math.random() * 80, 45, 'square', 0.04, 0.05);
+      sfx.shotgun.play();
+      //this.tone('machine', 360 + Math.random() * 80, 45, 'square', 0.04, 0.05);
     } else if (kind === 'missileLauncher') {
-      this.sweep('missile', 190, 80, 150, 'sawtooth', 0.06, 0.1);
+      sfx.missileLaunch.play();
+      //this.sweep('missile', 190, 80, 150, 'sawtooth', 0.06, 0.1);
     } else if (kind === 'lightningGun') {
-      this.noise('lightning', 100, 900, 0.055, 0.08);
-      this.tone('lightning', 1180, 80, 'triangle', 0.025, 0.05);
+      sfx.electricShock.play();
+      //this.noise('lightning', 100, 900, 0.055, 0.08);
+      //this.tone('lightning', 1180, 80, 'triangle', 0.025, 0.05);
     } else if (kind === 'droneLauncher') {
       this.tone('drone', 520, 70, 'triangle', 0.025, 0.06);
     }
@@ -64,12 +75,21 @@ export class SoundSystem {
   }
 
   public hit(): void {
-    this.tone('hit', 170, 55, 'square', 0.045, 0.05);
+    //sfx.explosion.play();
+    //this.tone('hit', 170, 55, 'square', 0.045, 0.05);
   }
 
-  public explosion(big = false): void {
-    this.noise('explosion', big ? 360 : 190, big ? 700 : 450, big ? 0.12 : 0.075, 0.08);
-    this.sweep('explosion', big ? 130 : 180, 45, big ? 260 : 150, 'sawtooth', big ? 0.08 : 0.045, 0.08);
+  private nextExplosionSound = 0;
+
+  public explosion(_big = false): void {
+    //sfx.explosionImpact.play();
+    const sound = sfx.explosionPool[this.nextExplosionSound];
+    this.nextExplosionSound = (this.nextExplosionSound + 1) % sfx.explosionPool.length;
+    sound.rate(0.5 + Math.random() * 1);
+    sound.play();
+    if (_big) {
+      sfx.explosion.play();
+    }
   }
 
   public correct(): void {
@@ -179,31 +199,4 @@ export class SoundSystem {
     oscillator.stop(start + durationMs / 1000);
   }
 
-  private noise(name: SoundName, durationMs: number, filterFrequency: number, gainValue: number, cooldownMs: number): void {
-    if (!this.canPlay(name, cooldownMs)) {
-      return;
-    }
-
-    const context = this.getContext();
-    const sampleCount = Math.max(1, Math.floor(context.sampleRate * (durationMs / 1000)));
-    const buffer = context.createBuffer(1, sampleCount, context.sampleRate);
-    const data = buffer.getChannelData(0);
-
-    for (let i = 0; i < sampleCount; i += 1) {
-      data[i] = (Math.random() * 2 - 1) * (1 - i / sampleCount);
-    }
-
-    const source = context.createBufferSource();
-    const filter = context.createBiquadFilter();
-    const gain = context.createGain();
-    const start = context.currentTime;
-
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(filterFrequency, start);
-    gain.gain.setValueAtTime(gainValue, start);
-    gain.gain.exponentialRampToValueAtTime(0.001, start + durationMs / 1000);
-    source.buffer = buffer;
-    source.connect(filter).connect(gain).connect(this.getOutput());
-    source.start(start);
-  }
 }

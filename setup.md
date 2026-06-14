@@ -2,6 +2,8 @@ npm create vite@latest . -- --template vanilla-ts
 npm install pixi.js # graphics/app
 npm install pixijs-skills # LLM skills
 npm install howler # audio
+npm i --save-dev @types/howler # audio - not sure why this was needed
+
 npm install pixi-filters
 
 mkdir .claude

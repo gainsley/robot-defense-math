@@ -1,5 +1,6 @@
 import { Assets, Container, Sprite, Texture } from 'pixi.js';
 import type { WeaponKind } from './types';
+import { hexNumber } from './utils';
 
 export type EffectKind = WeaponKind | 'alienBolt';
 
@@ -40,12 +41,12 @@ const flareUrls = [
   new URL('./assets/Particles/Complex/flare/flare_6.png', import.meta.url).href,
 ];
 const smokeUrls = [
-  new URL('./assets/Particles/Complex/smoke/smoke_1.png', import.meta.url).href,
-  new URL('./assets/Particles/Complex/smoke/smoke_2.png', import.meta.url).href,
-  new URL('./assets/Particles/Complex/smoke/smoke_3.png', import.meta.url).href,
-  new URL('./assets/Particles/Complex/smoke/smoke_4.png', import.meta.url).href,
-  new URL('./assets/Particles/Complex/smoke/smoke_5.png', import.meta.url).href,
-  new URL('./assets/Particles/Complex/smoke/smoke_6.png', import.meta.url).href,
+  new URL('./assets/Particles/Complex/smoke/smoke2_1.png', import.meta.url).href,
+  new URL('./assets/Particles/Complex/smoke/smoke2_2.png', import.meta.url).href,
+  new URL('./assets/Particles/Complex/smoke/smoke2_3.png', import.meta.url).href,
+  new URL('./assets/Particles/Complex/smoke/smoke2_4.png', import.meta.url).href,
+  new URL('./assets/Particles/Complex/smoke/smoke2_5.png', import.meta.url).href,
+  new URL('./assets/Particles/Complex/smoke/smoke2_6.png', import.meta.url).href,
 ];
 const starUrls = [
   new URL('./assets/Particles/Color/star/color_star_1.png', import.meta.url).href,
@@ -68,6 +69,11 @@ const spiroUrls = [
   new URL('./assets/Particles/Color/spirowires/color_spirowires_2.png', import.meta.url).href,
   new URL('./assets/Particles/Color/spirowires/color_spirowires_3.png', import.meta.url).href,
   new URL('./assets/Particles/Color/spirowires/color_spirowires_4.png', import.meta.url).href,
+];
+const fireMagicParticlesUrls = [
+  new URL('./assets/Particles/Color/magic particles/magic_particles_1.png', import.meta.url).href,
+  new URL('./assets/Particles/Color/magic particles/magic_particles_4.png', import.meta.url).href,
+  new URL('./assets/Particles/Color/magic particles/magic_particles_5.png', import.meta.url).href,
 ];
 
 function randomItem<T>(items: T[]): T | undefined {
@@ -106,6 +112,7 @@ export class EffectsSystem {
   private starTextures: Texture[] = [];
   private rayTextures: Texture[] = [];
   private spiroTextures: Texture[] = [];
+  private fireMagicParticlesTextures: Texture[] = [];
   private shakeMs = 0;
   private shakeDurationMs = 1;
   private shakeAmount = 0;
@@ -161,8 +168,8 @@ export class EffectsSystem {
     if (impactTexture) {
       this.makeParticle(impactTexture, x, y, {
         durationMs: kind === 'missileLauncher' ? 260 : 180,
-        startScale: kind === 'missileLauncher' ? 0.55 : 0.28,
-        endScale: kind === 'missileLauncher' ? 1.2 : 0.65,
+        startScale: kind === 'missileLauncher' ? 0.25 : 0.14,
+        endScale: kind === 'missileLauncher' ? 0.6 : 0.3,
         blendMode: 'add',
         tint: colorForKind(kind),
         rotationSpeed: (Math.random() - 0.5) * 8,
@@ -172,33 +179,33 @@ export class EffectsSystem {
     this.spawnSparks(x, y, kind === 'missileLauncher' ? 14 : 6, colorForKind(kind), kind === 'missileLauncher' ? 170 : 115);
   }
 
-  public spawnExplosion(x: number, y: number, big: boolean): void {
+  public spawnExplosion(x: number, y: number, scale: number): void {
     const flareTexture = randomItem(this.flareTextures);
     if (flareTexture) {
       this.makeParticle(flareTexture, x, y, {
-        durationMs: big ? 620 : 420,
-        startScale: big ? 0.65 : 0.32,
-        endScale: big ? 2.2 : 1.15,
+        durationMs: scale * 420,
+        startScale: scale * 0.32,
+        endScale: scale * 1.15,
         blendMode: 'add',
-        tint: big ? 0xff9f1c : 0xffc857,
+        tint: scale > 0.5 ? 0xff9f1c : 0xffc857,
         rotationSpeed: 2,
       });
     }
 
-    for (let i = 0; i < (big ? 8 : 4); i += 1) {
+    for (let i = 0; i < (scale * 4); i += 1) {
       const angle = Math.random() * Math.PI * 2;
-      const distance = big ? 20 : 10;
-      this.spawnSmoke(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance, big);
+      const distance = scale * 10;
+      this.spawnSmoke(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance, scale);
     }
 
-    this.spawnSparks(x, y, big ? 26 : 10, 0xfff3a3, big ? 260 : 160);
-    this.shake(big ? 8 : 3, big ? 360 : 160);
+    this.spawnSparks(x, y, scale * 10, 0xfff3a3, scale * 160);
+    this.shake(scale * 0.5, scale * 10);
   }
 
   public spawnTrail(x: number, y: number, kind: EffectKind): void {
     if (kind === 'missileLauncher') {
       if (Math.random() < 0.85) {
-        this.spawnSmoke(x, y, false);
+        this.spawnSmoke(x, y, 0.2);
       }
       return;
     }
@@ -210,8 +217,8 @@ export class EffectsSystem {
       }
       this.makeParticle(texture, x, y, {
         durationMs: 140,
-        startScale: 0.08,
-        endScale: 0.18,
+        startScale: 0.02,
+        endScale: 0.04,
         blendMode: 'add',
         tint: colorForKind(kind),
         rotationSpeed: (Math.random() - 0.5) * 9,
@@ -280,6 +287,7 @@ export class EffectsSystem {
       this.starTextures,
       this.rayTextures,
       this.spiroTextures,
+      this.fireMagicParticlesTextures,
     ] = await Promise.all([
       load(muzzleUrls),
       load(impactUrls),
@@ -288,30 +296,31 @@ export class EffectsSystem {
       load(starUrls),
       load(rayUrls),
       load(spiroUrls),
+      load(fireMagicParticlesUrls),
     ]);
   }
 
-  private spawnSmoke(x: number, y: number, big: boolean): void {
+  private spawnSmoke(x: number, y: number, scale: number): void {
     const texture = randomItem(this.smokeTextures);
     if (!texture) {
       return;
     }
 
     this.makeParticle(texture, x, y, {
-      durationMs: big ? 900 : 460,
-      startScale: big ? 0.42 : 0.16,
-      endScale: big ? 1.35 : 0.55,
+      durationMs: scale * 460,
+      startScale: scale * 0.16,
+      endScale: scale * 0.55,
       blendMode: 'normal',
-      tint: 0x9ca3af,
-      vx: (Math.random() - 0.5) * (big ? 48 : 24),
-      vy: -20 - Math.random() * (big ? 48 : 22),
+      tint: hexNumber("#ebeff7"),
+      vx: (Math.random() - 0.5) * (scale * 24),
+      vy: -20 - Math.random() * (scale * 22),
       rotationSpeed: (Math.random() - 0.5) * 1.8,
     });
   }
 
   private spawnSparks(x: number, y: number, count: number, tint: number, speed: number): void {
     for (let i = 0; i < count; i += 1) {
-      const texture = randomItem(this.starTextures);
+      const texture = randomItem(this.fireMagicParticlesTextures);
       if (!texture) {
         return;
       }

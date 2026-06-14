@@ -71,3 +71,11 @@ export type Explosion = {
   durationMs: number;
   maxRadius: number;
 };
+
+export type LightningArc = {
+  graphic: Graphics;
+  weapon: Weapon;
+  target: Enemy;
+  ageMs: number;
+  durationMs: number;
+};

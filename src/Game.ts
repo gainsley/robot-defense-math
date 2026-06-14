@@ -13,7 +13,7 @@ import { renderMathText } from './mathText';
 import { SoundSystem } from './SoundSystem';
 import { createInitialWeapons } from './weapons';
 import { EffectsSystem } from './EffectsSystem';
-import type { Enemy, Explosion, Projectile, Question, Upgrade, Weapon, WeaponKind } from './types';
+import type { Enemy, Explosion, LightningArc, Projectile, Question, Upgrade, Weapon, WeaponKind } from './types';
 
 type QuestionButton = Container & {
   answerText: string;
@@ -84,6 +84,7 @@ export class Game {
   private enemies: Enemy[] = [];
   private projectiles: Projectile[] = [];
   private explosions: Explosion[] = [];
+  private lightningArcs: LightningArc[] = [];
   private questionButtons: QuestionButton[] = [];
   private weapons: Weapon[] = [];
   private readonly maxMachineHp = 100;
@@ -172,7 +173,12 @@ export class Game {
     this.machineHp = Math.min(this.maxMachineHp, this.machineHp + (3 / 1000) * dt);
 
     if (this.waveMode === 'regular' && this.spawnTimerMs <= 0 && this.spawnedEnemies < this.totalEnemies) {
-      this.spawnEnemy();
+      // if no enemies, spawn 3, because they're getting killed faster than
+      // the spawn timer
+      let spawnCount = this.enemies.length == 0 ? 2 : 1;
+      for (let i = 0; i < spawnCount; i += 1) {
+        this.spawnEnemy();
+      }
       this.spawnTimerMs = 2800;
     }
 
@@ -181,12 +187,13 @@ export class Game {
     this.updateWeapons(dt);
     this.updateProjectiles(dt);
     this.updateExplosions(dt);
+    this.updateLightningArcs(dt);
     this.effects.update(dt);
     this.world.x = this.effects.shakeX;
     this.world.y = this.effects.shakeY;
     this.effectsLayer.x = this.effects.shakeX;
     this.effectsLayer.y = this.effects.shakeY;
-    if (this.frenzyTimerMs > 0 || this.wasFrenzyActive) {
+    if (this.frenzyTimerMs > 0 || this.wasFrenzyActive || this.lightningArcs.length > 0) {
       this.drawMachine();
     }
     this.wasFrenzyActive = this.frenzyTimerMs > 0;
@@ -342,11 +349,37 @@ export class Game {
       weapon.art.rect(-15, -weapon.muzzleLength, 12, weapon.muzzleLength).fill(this.frenzyTimerMs > 0 ? 0xef4444 : 0x94a3b8);
       weapon.art.rect(3, -weapon.muzzleLength, 12, weapon.muzzleLength).fill(this.frenzyTimerMs > 0 ? 0xef4444 : 0x94a3b8);
     } else if (weapon.kind === 'lightningGun') {
-      weapon.art.moveTo(0, 0).lineTo(12, -24).lineTo(3, -24).lineTo(16, -weapon.muzzleLength).stroke({
-        width: 5,
-        color: 0xfacc15,
-        cap: 'round',
-        join: 'round',
+      const coilActive = this.lightningArcs.some((arc) => arc.weapon === weapon);
+      const coilPulse = coilActive ? 0.55 + Math.sin(performance.now() / 55) * 0.25 : 0;
+      const coilColor = coilActive ? 0x9effff : 0x38bdf8;
+      weapon.art.rect(-5, -weapon.muzzleLength, 10, weapon.muzzleLength).fill(0x111827).stroke({
+        width: 2,
+        color: coilActive ? 0xbfffff : 0x64748b,
+      });
+      weapon.art.rect(-2, -weapon.muzzleLength - 12, 4, 14).fill(0xe0f2fe);
+      weapon.art.circle(0, -weapon.muzzleLength - 14, 5 + coilPulse * 3).fill({
+        color: coilActive ? 0xdfffff : 0xfacc15,
+        alpha: coilActive ? 0.9 : 0.75,
+      });
+      for (let i = 0; i < 7; i += 1) {
+        const y = -10 - i * ((weapon.muzzleLength - 18) / 6);
+        if (coilActive) {
+          weapon.art.ellipse(0, y, 16 + coilPulse * 8, 5 + coilPulse * 3).stroke({
+            width: 5,
+            color: 0x67e8f9,
+            alpha: 0.18 + coilPulse * 0.28,
+          });
+        }
+        weapon.art.ellipse(0, y, 13, 4).stroke({
+          width: coilActive ? 3 : 2,
+          color: coilColor,
+          alpha: coilActive ? 0.85 : 0.55,
+        });
+      }
+      weapon.art.moveTo(-14, -weapon.muzzleLength + 10).lineTo(14, -weapon.muzzleLength + 10).stroke({
+        width: 2,
+        color: 0xb7f9ff,
+        alpha: coilActive ? 0.95 : 0.55,
       });
     } else {
       weapon.art.circle(0, -weapon.muzzleLength * 0.45, 12).fill(0xa78bfa);
@@ -932,6 +965,28 @@ export class Game {
   }
 
   private drawProjectile(projectile: Projectile): void {
+    if (!projectile.fromEnemy && projectile.kind === 'missileLauncher') {
+      const length = 34;
+      const bodyHeight = 7;
+      projectile.graphic.clear();
+      projectile.graphic.rotation = Math.atan2(projectile.vy, projectile.vx);
+      projectile.graphic.poly([length / 2, 0, length / 2 - 9, -bodyHeight / 2, length / 2 - 9, bodyHeight / 2], true).fill(0xffd166);
+      projectile.graphic.rect(-length / 2 + 7, -bodyHeight / 2, length - 16, bodyHeight).fill(0xff7a18).stroke({
+        width: 1,
+        color: 0xfff3a3,
+        alpha: 0.85,
+      });
+      projectile.graphic.rect(-length / 2 + 2, -bodyHeight / 2 - 3, 8, 3).fill(0x67e8f9);
+      projectile.graphic.rect(-length / 2 + 2, bodyHeight / 2, 8, 3).fill(0x67e8f9);
+      projectile.graphic.poly([-length / 2 - 8, 0, -length / 2 + 2, -4, -length / 2 + 2, 4], true).fill({
+        color: 0xff4d00,
+        alpha: 0.8,
+      });
+      projectile.graphic.x = projectile.x;
+      projectile.graphic.y = projectile.y;
+      return;
+    }
+
     const color = projectile.fromEnemy
       ? 0xff4d8d
       : projectile.kind === 'missileLauncher'
@@ -940,6 +995,7 @@ export class Game {
           ? 0xa7f3ff
           : 0xf8fafc;
     projectile.graphic.clear();
+    projectile.graphic.rotation = 0;
     projectile.graphic.circle(0, 0, projectile.radius).fill(color);
     projectile.graphic.x = projectile.x;
     projectile.graphic.y = projectile.y;
@@ -947,24 +1003,90 @@ export class Game {
 
   private drawLightning(weapon: Weapon, target: Enemy): void {
     const muzzle = this.turretMuzzle(weapon, 0);
-    const bolt = new Graphics();
+    const graphic = new Graphics();
     this.effects.spawnMuzzleFlash(muzzle.x, muzzle.y, weapon.turret.rotation, weapon.kind);
     this.effects.spawnImpact(target.x, target.y, weapon.kind);
-    bolt.moveTo(muzzle.x, muzzle.y);
-    for (let i = 1; i <= 5; i += 1) {
-      const t = i / 5;
-      const x = muzzle.x + (target.x - muzzle.x) * t + (Math.random() - 0.5) * 22;
-      const y = muzzle.y + (target.y - muzzle.y) * t;
-      bolt.lineTo(x, y);
+    const arc: LightningArc = { graphic, weapon, target, ageMs: 0, durationMs: 2000 };
+    this.lightningArcs.push(arc);
+    this.world.addChild(graphic);
+    this.drawLightningArc(arc);
+  }
+
+  private updateLightningArcs(dt: number): void {
+    for (let i = this.lightningArcs.length - 1; i >= 0; i -= 1) {
+      const arc = this.lightningArcs[i];
+      arc.ageMs += dt;
+
+      if (arc.ageMs >= arc.durationMs) {
+        arc.graphic.destroy();
+        this.lightningArcs.splice(i, 1);
+        continue;
+      }
+
+      this.drawLightningArc(arc);
     }
-    bolt.stroke({ width: 4, color: 0xfacc15, alpha: 0.95, cap: 'round', join: 'round' });
-    this.world.addChild(bolt);
-    this.explosions.push({ graphic: bolt, x: target.x, y: target.y, ageMs: 0, durationMs: 120, maxRadius: 0 });
+  }
+
+  private drawLightningArc(arc: LightningArc): void {
+    const muzzle = this.turretMuzzle(arc.weapon, 0);
+    const targetX = arc.target.x;
+    const targetY = arc.target.y;
+    const dx = targetX - muzzle.x;
+    const dy = targetY - muzzle.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const normalX = -dy / distance;
+    const normalY = dx / distance;
+    const flicker = 0.72 + Math.random() * 0.28;
+    const fade = Math.max(0, 1 - arc.ageMs / arc.durationMs);
+
+    arc.graphic.clear();
+    arc.graphic.moveTo(muzzle.x, muzzle.y);
+    for (let i = 1; i <= 9; i += 1) {
+      const t = i / 9;
+      const jitter = (Math.random() - 0.5) * (24 + Math.sin(performance.now() / 40 + i) * 8);
+      const x = muzzle.x + dx * t + normalX * jitter;
+      const y = muzzle.y + dy * t + normalY * jitter;
+      arc.graphic.lineTo(x, y);
+    }
+    arc.graphic.stroke({ width: 10, color: 0x38bdf8, alpha: 0.18 * flicker * fade, cap: 'round', join: 'round' });
+
+    arc.graphic.moveTo(muzzle.x, muzzle.y);
+    for (let i = 1; i <= 7; i += 1) {
+      const t = i / 7;
+      const jitter = (Math.random() - 0.5) * 18;
+      const x = muzzle.x + dx * t + normalX * jitter;
+      const y = muzzle.y + dy * t + normalY * jitter;
+      arc.graphic.lineTo(x, y);
+    }
+    arc.graphic.stroke({ width: 5, color: 0x7dd3fc, alpha: 0.85 * flicker * fade, cap: 'round', join: 'round' });
+
+    arc.graphic.moveTo(muzzle.x, muzzle.y);
+    for (let i = 1; i <= 11; i += 1) {
+      const t = i / 11;
+      const jitter = (Math.random() - 0.5) * 10;
+      const x = muzzle.x + dx * t + normalX * jitter;
+      const y = muzzle.y + dy * t + normalY * jitter;
+      arc.graphic.lineTo(x, y);
+    }
+    arc.graphic.stroke({ width: 2, color: 0xffffff, alpha: 0.95 * flicker * fade, cap: 'round', join: 'round' });
+
+    for (let i = 0; i < 3; i += 1) {
+      const branchT = 0.22 + Math.random() * 0.62;
+      const branchX = muzzle.x + dx * branchT;
+      const branchY = muzzle.y + dy * branchT;
+      const branchLength = 22 + Math.random() * 26;
+      const side = Math.random() > 0.5 ? 1 : -1;
+      arc.graphic
+        .moveTo(branchX, branchY)
+        .lineTo(branchX + normalX * branchLength * side, branchY + normalY * branchLength * side)
+        .stroke({ width: 2, color: 0xbfffff, alpha: 0.55 * flicker * fade, cap: 'round' });
+    }
   }
 
   private updateProjectiles(dt: number): void {
     for (let i = this.projectiles.length - 1; i >= 0; i -= 1) {
       const projectile = this.projectiles[i];
+      this.updateMissileHoming(projectile, dt);
       projectile.x += (projectile.vx / 1000) * dt;
       projectile.y += (projectile.vy / 1000) * dt;
       this.drawProjectile(projectile);
@@ -975,7 +1097,7 @@ export class Game {
           this.machineHp = Math.max(0, this.machineHp - projectile.damage);
           this.sounds.hit();
           this.effects.spawnImpact(projectile.x, projectile.y, projectile.kind);
-          this.spawnExplosion(projectile.x, projectile.y, 24);
+          this.spawnExplosion(projectile.x, projectile.y, 1);
           this.removeProjectile(i);
         }
       } else {
@@ -984,7 +1106,7 @@ export class Game {
           this.damageEnemy(enemy, projectile.damage);
           this.sounds.hit();
           this.effects.spawnImpact(projectile.x, projectile.y, projectile.kind);
-          this.spawnExplosion(projectile.x, projectile.y, projectile.kind === 'missileLauncher' ? 46 : 20);
+          this.spawnExplosion(projectile.x, projectile.y, projectile.kind === 'missileLauncher' ? 2 : 1);
           this.removeProjectile(i);
         }
       }
@@ -993,6 +1115,47 @@ export class Game {
         this.removeProjectile(i);
       }
     }
+  }
+
+  private updateMissileHoming(projectile: Projectile, dt: number): void {
+    if (projectile.fromEnemy || projectile.kind !== 'missileLauncher' || this.enemies.length === 0) {
+      return;
+    }
+
+    const target = this.enemies
+      .slice()
+      .sort((a, b) => Math.hypot(a.x - projectile.x, a.y - projectile.y) - Math.hypot(b.x - projectile.x, b.y - projectile.y))[0];
+    if (!target) {
+      return;
+    }
+
+    const speed = Math.max(1, Math.hypot(projectile.vx, projectile.vy));
+    const desiredAngle = Math.atan2(target.y - projectile.y, target.x - projectile.x);
+    const currentAngle = Math.atan2(projectile.vy, projectile.vx);
+    const maxTurn = (2.8 * dt) / 1000;
+    const nextAngle = this.clampMissileAngle(currentAngle + this.shortestAngleDelta(currentAngle, desiredAngle, maxTurn));
+
+    projectile.vx = Math.cos(nextAngle) * speed;
+    projectile.vy = Math.sin(nextAngle) * speed;
+  }
+
+  private shortestAngleDelta(from: number, to: number, maxDelta: number): number {
+    let delta = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI;
+    if (delta < -Math.PI) {
+      delta += Math.PI * 2;
+    }
+    return Math.max(-maxDelta, Math.min(maxDelta, delta));
+  }
+
+  private clampMissileAngle(angle: number): number {
+    const minUpwardAngle = (-Math.PI * 5) / 6;
+    const maxUpwardAngle = -Math.PI / 6;
+    let normalized = ((angle + Math.PI) % (Math.PI * 2)) - Math.PI;
+    if (normalized < -Math.PI) {
+      normalized += Math.PI * 2;
+    }
+
+    return Math.max(minUpwardAngle, Math.min(maxUpwardAngle, normalized));
   }
 
   private removeProjectile(index: number): void {
@@ -1050,7 +1213,7 @@ export class Game {
         this.spawnExplosion(
           this.enemies[i].x,
           this.enemies[i].y,
-          this.enemies[i].kind === 'boss' ? 96 : this.frenzyTimerMs > 0 ? 64 : 34,
+          this.enemies[i].kind === 'boss' ? 3 : this.frenzyTimerMs > 0 ? 2 : 1,
         );
         this.sounds.explosion(this.enemies[i].kind === 'boss');
         const defeatedKind = this.enemies[i].kind;
@@ -1138,11 +1301,11 @@ export class Game {
     enemy.hp -= damage;
   }
 
-  private spawnExplosion(x: number, y: number, maxRadius: number): void {
+  private spawnExplosion(x: number, y: number, scale: number): void {
     const graphic = new Graphics();
-    this.explosions.push({ graphic, x, y, ageMs: 0, durationMs: 360, maxRadius });
+    this.explosions.push({ graphic, x, y, ageMs: 0, durationMs: 360, maxRadius: scale });
     this.world.addChild(graphic);
-    this.effects.spawnExplosion(x, y, maxRadius >= 60);
+    this.effects.spawnExplosion(x, y, scale);
   }
 
   private updateExplosions(dt: number): void {
