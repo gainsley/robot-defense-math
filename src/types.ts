@@ -31,6 +31,7 @@ export type Weapon = {
 export type Upgrade = {
   label: string;
   description: string;
+  weaponKind: WeaponKind;
   apply: () => void;
 };
 

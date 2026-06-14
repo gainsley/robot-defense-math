@@ -99,6 +99,9 @@ export class Game {
   private combo = 0;
   private maxCombo = 3;
   private currentQuestionIndex = 0;
+  private selectedAnswerIndex: number | null = null;
+  private revealingAnswer = false;
+  private pendingQuestionTimeout: number | null = null;
   private spawnTimerMs = 0;
   private frenzyTimerMs = 0;
   private wasFrenzyActive = false;
@@ -477,6 +480,8 @@ export class Game {
   }
 
   private showQuestion(): void {
+    this.selectedAnswerIndex = null;
+    this.revealingAnswer = false;
     const question = this.activeQuestions[this.currentQuestionIndex % this.activeQuestions.length];
     this.questionText.text = question.prompt;
 
@@ -501,26 +506,38 @@ export class Game {
 
   private drawButton(button: QuestionButton, width: number, height: number, index: number): void {
     const bg = button.children[0] as Graphics;
+    const question = this.activeQuestions[this.currentQuestionIndex % this.activeQuestions.length];
+    const isCorrectReveal = this.revealingAnswer && index === question.correctIndex;
+    const isWrongReveal = this.revealingAnswer && index === this.selectedAnswerIndex && index !== question.correctIndex;
+    const fillColor = isCorrectReveal ? 0x062d1c : isWrongReveal ? 0x3a0a0a : 0x0b1f33;
+    const borderColor = isCorrectReveal ? 0x22c55e : isWrongReveal ? 0xef4444 : 0x38bdf8;
+    const accentColor = isCorrectReveal ? 0x86efac : isWrongReveal ? 0xff8a8a : 0x22d3ee;
+
     bg.clear();
-    bg.rect(0, 0, width, height).fill(0x0b1f33).stroke({ width: 4, color: 0x38bdf8 });
-    bg.moveTo(12, height - 10).lineTo(width - 12, height - 10).stroke({ width: 2, color: 0x7dd3fc, alpha: 0.7 });
-    bg.rect(10, 10, 26, 5).fill(0x22d3ee);
-    bg.rect(width - 36, 10, 26, 5).fill(0x22d3ee);
+    bg.rect(0, 0, width, height).fill(fillColor).stroke({ width: 4, color: borderColor });
+    bg.moveTo(12, height - 10).lineTo(width - 12, height - 10).stroke({ width: 2, color: accentColor, alpha: 0.85 });
+    bg.rect(10, 10, 26, 5).fill(accentColor);
+    bg.rect(width - 36, 10, 26, 5).fill(accentColor);
     renderMathText(button.labelLayer, button.answerText, width - 24, 23);
     button.labelLayer.x = width / 2;
     button.labelLayer.y = height / 2;
     button.hitArea = new Rectangle(0, 0, width, height);
-    button.alpha = this.paused ? 0.5 : 1;
+    button.alpha = this.paused && !this.revealingAnswer ? 0.5 : 1;
     button.zIndex = index;
   }
 
   private answerQuestion(index: number): void {
     this.sounds.unlock();
-    if (this.paused) {
+    if (this.paused || this.revealingAnswer) {
       return;
     }
 
     const question = this.activeQuestions[this.currentQuestionIndex % this.activeQuestions.length];
+    this.selectedAnswerIndex = index;
+    this.revealingAnswer = true;
+    let shouldOpenUpgradeDialog = false;
+
+    let windowTimeout = 750;
     if (index === question.correctIndex) {
       this.sounds.correct();
       this.combo += 1;
@@ -531,16 +548,28 @@ export class Game {
       }
       if (this.correctSinceUpgrade >= 5) {
         this.correctSinceUpgrade = 0;
-        this.openUpgradeDialog();
+        shouldOpenUpgradeDialog = true;
       }
     } else {
       this.sounds.wrong();
       this.combo = 0;
+      windowTimeout = 1100;
     }
 
-    this.currentQuestionIndex += 1;
-    this.showQuestion();
+    this.layoutQuestionControls();
     this.drawHud();
+    if (this.pendingQuestionTimeout !== null) {
+      window.clearTimeout(this.pendingQuestionTimeout);
+    }
+    this.pendingQuestionTimeout = window.setTimeout(() => {
+      this.pendingQuestionTimeout = null;
+      this.currentQuestionIndex += 1;
+      this.showQuestion();
+      this.drawHud();
+      if (shouldOpenUpgradeDialog) {
+        this.openUpgradeDialog();
+      }
+    }, windowTimeout);
   }
 
   private triggerFrenzy(): void {
@@ -788,7 +817,12 @@ export class Game {
     });
     description.x = 12;
     description.y = 70;
-    card.addChild(bg, title, description);
+
+    const preview = this.createUpgradeTurretPreview(upgrade.weaponKind);
+    preview.x = width / 2;
+    preview.y = Math.min(height - 18, description.y + description.height + 58);
+
+    card.addChild(bg, title, description, preview);
     card.eventMode = 'static';
     card.cursor = 'pointer';
     card.hitArea = new Rectangle(0, 0, width, height);
@@ -800,6 +834,49 @@ export class Game {
       this.drawMachine();
     });
     return card;
+  }
+
+  private createUpgradeTurretPreview(kind: WeaponKind): Container {
+    const preview = new Container();
+    const art = new Graphics();
+    const metal = 0x64748b;
+    const dark = 0x1f2937;
+    const light = 0xcbd5e1;
+    const stroke = 0x94a3b8;
+
+    art.circle(0, 0, 13).fill(dark).stroke({ width: 2, color: stroke });
+
+    if (kind === 'railGun') {
+      art.rect(-6, -54, 12, 54).fill(metal).stroke({ width: 1, color: light, alpha: 0.7 });
+      art.rect(-3, -66, 6, 16).fill(light);
+      art.rect(-13, -46, 5, 30).fill(0x334155);
+      art.rect(8, -46, 5, 30).fill(0x334155);
+    } else if (kind === 'machineGun') {
+      art.rect(-15, -48, 7, 48).fill(dark).stroke({ width: 1, color: stroke });
+      art.rect(8, -48, 7, 48).fill(dark).stroke({ width: 1, color: stroke });
+      art.rect(-4, -38, 8, 36).fill(metal);
+      art.rect(-18, -54, 36, 8).fill(0x334155);
+    } else if (kind === 'missileLauncher') {
+      art.rect(-17, -50, 13, 50).fill(metal).stroke({ width: 1, color: light, alpha: 0.65 });
+      art.rect(4, -50, 13, 50).fill(metal).stroke({ width: 1, color: light, alpha: 0.65 });
+      art.poly([-16, -58, -4, -50, -17, -50], true).fill(light);
+      art.poly([5, -50, 17, -58, 18, -50], true).fill(light);
+    } else if (kind === 'lightningGun') {
+      art.rect(-5, -58, 10, 58).fill(dark).stroke({ width: 2, color: stroke });
+      art.rect(-2, -70, 4, 14).fill(light);
+      art.circle(0, -72, 5).fill(light).stroke({ width: 1, color: stroke });
+      for (let i = 0; i < 7; i += 1) {
+        art.ellipse(0, -10 - i * 8, 14, 4).stroke({ width: 2, color: light, alpha: 0.75 });
+      }
+    } else {
+      art.circle(0, -26, 13).fill(metal).stroke({ width: 2, color: stroke });
+      art.rect(-5, -46, 10, 34).fill(dark);
+      art.rect(-18, -22, 36, 6).fill(light);
+    }
+
+    preview.addChild(art);
+    preview.scale.set(0.72);
+    return preview;
   }
 
   private closeUpgradeDialog(): void {
@@ -814,21 +891,25 @@ export class Game {
       {
         label: 'Tune rail gun',
         description: 'Rail gun damage goes up and it cycles faster.',
+        weaponKind: 'railGun',
         apply: () => this.powerUpWeapon('railGun', 5, 0.9),
       },
       {
         label: this.isUnlocked('machineGun') ? 'Overclock machine gun' : 'Add machine gun',
         description: 'Fires bursts of five small rounds.',
+        weaponKind: 'machineGun',
         apply: () => this.unlockOrPowerUpWeapon('machineGun', 2, 0.88),
       },
       {
         label: this.isUnlocked('missileLauncher') ? 'Bigger missiles' : 'Add missile launcher',
         description: 'Slow, heavy shots with large explosions.',
+        weaponKind: 'missileLauncher',
         apply: () => this.unlockOrPowerUpWeapon('missileLauncher', 8, 0.92),
       },
       {
         label: this.isUnlocked('lightningGun') ? 'Increased current' : 'Add lightning gun',
         description: 'Fast electric arcs that hit saucers instantly.',
+        weaponKind: 'lightningGun',
         apply: () => this.unlockOrPowerUpWeapon('lightningGun', 4, 0.9),
       },
       /*
