@@ -80,7 +80,7 @@ export const sfx = {
     }),
     frenzy: new Howl({
         src: [frenzy],
-        volume: 0.9,
+        volume: 0.5,
         rate: 1.0,
     }),
     errtriplet: new Howl({

@@ -6,10 +6,17 @@ export type Question = {
   correctIndex: number;
 };
 
+export type QuestionGenerator = () => Question;
+
 export type LevelQuestions = {
   level: number;
-  questions: Question[];
+  generators: QuestionGenerator[];
 };
+
+export type QuestionGens = {
+  level: number;
+  generators: (() => Question)[];
+}
 
 export type WeaponKind = 'railGun' | 'machineGun' | 'missileLauncher' | 'lightningGun' | 'droneLauncher';
 

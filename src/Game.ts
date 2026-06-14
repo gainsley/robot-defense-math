@@ -8,7 +8,7 @@ import {
   type FederatedPointerEvent,
   type Ticker,
 } from 'pixi.js';
-import { LEVEL_QUESTIONS } from './questions';
+import { LEVEL_QUESTIONS, UPGRADES_TO_NEXT_LEVEL, getQuestion } from './questions';
 import { renderMathText } from './mathText';
 import { SoundSystem } from './SoundSystem';
 import { createInitialWeapons } from './weapons';
@@ -24,6 +24,20 @@ const DefaultFont = "Unitblock"
 const DefaultMeterFont = "Zekton"
 const DetailTextFont = "GlacialIndifference"
 // math font is in src/mathText.ts
+
+type TurretPalette = {
+  mountStroke: number;
+  darkMetal: number;
+  barrelDark: number;
+  barrelLight: number;
+  machineGunBarrel: number;
+  missileTube: number;
+  lightningCoil: number;
+  lightningGlow: number;
+  lightningTip: number;
+  droneShell: number;
+  droneCore: number;
+};
 
 export class Game {
   private readonly app: Application;
@@ -93,12 +107,13 @@ export class Game {
   private spawnedEnemies = 0;
   private destroyedEnemies = 0;
   private stage = 1;
+  private questionLevel = 1;
+  private currentQuestion: Question = getQuestion(1);
   private waveMode: 'regular' | 'boss' = 'regular';
   private upgradeCounter = 0;
   private correctSinceUpgrade = 0;
   private combo = 0;
   private maxCombo = 3;
-  private currentQuestionIndex = 0;
   private selectedAnswerIndex: number | null = null;
   private revealingAnswer = false;
   private pendingQuestionTimeout: number | null = null;
@@ -159,10 +174,6 @@ export class Game {
 
     window.addEventListener('resize', () => this.layoutScene());
     this.app.ticker.add((ticker) => this.update(ticker));
-  }
-
-  private get activeQuestions(): Question[] {
-    return LEVEL_QUESTIONS[(this.stage - 1) % LEVEL_QUESTIONS.length].questions;
   }
 
   private update(ticker: Ticker): void {
@@ -326,10 +337,20 @@ export class Game {
 
   private drawWeaponTurret(weapon: Weapon, sizeBoost: number): void {
     const frenzyPulse = this.frenzyPulse();
-    const mountStroke = this.frenzyTimerMs > 0 ? 0xff6b6b : 0x7dd3fc;
-    const darkMetal = this.frenzyTimerMs > 0 ? 0x450a0a : 0x111827;
-    const barrelDark = this.frenzyTimerMs > 0 ? 0x7f1d1d : 0x1f2937;
-    const barrelLight = this.frenzyTimerMs > 0 ? 0xffb4b4 : 0xe0f2fe;
+    const palette: TurretPalette = {
+      mountStroke: this.frenzyTimerMs > 0 ? 0xff6b6b : 0x7dd3fc,
+      darkMetal: this.frenzyTimerMs > 0 ? 0x450a0a : 0x111827,
+      barrelDark: this.frenzyTimerMs > 0 ? 0x7f1d1d : 0x1f2937,
+      barrelLight: this.frenzyTimerMs > 0 ? 0xffb4b4 : 0xe0f2fe,
+      machineGunBarrel: this.frenzyTimerMs > 0 ? 0x991b1b : 0x020617,
+      missileTube: this.frenzyTimerMs > 0 ? 0xef4444 : 0x94a3b8,
+      lightningCoil: 0x38bdf8,
+      lightningGlow: 0x67e8f9,
+      lightningTip: 0xfacc15,
+      droneShell: 0xa78bfa,
+      droneCore: 0x4c1d95,
+    };
+    const coilActive = weapon.kind === 'lightningGun' && this.lightningArcs.some((arc) => arc.weapon === weapon);
     weapon.turret.x = weapon.mountX * (1 + sizeBoost / 120);
     weapon.turret.y = weapon.mountY;
     weapon.turret.visible = weapon.unlocked;
@@ -339,54 +360,67 @@ export class Game {
       return;
     }
 
-    weapon.art.circle(0, 0, 11 + frenzyPulse * 2).fill(darkMetal).stroke({ width: 2 + frenzyPulse, color: mountStroke });
+    this.drawTurretArt(weapon.art, weapon.kind, weapon.muzzleLength, palette, frenzyPulse, coilActive);
+  }
 
-    if (weapon.kind === 'railGun') {
-      weapon.art.rect(-6, -weapon.muzzleLength, 12, weapon.muzzleLength).fill(barrelDark);
-      weapon.art.rect(-3, -weapon.muzzleLength - 14, 6, 16).fill(barrelLight);
-    } else if (weapon.kind === 'machineGun') {
-      weapon.art.rect(-14, -weapon.muzzleLength, 7, weapon.muzzleLength).fill(this.frenzyTimerMs > 0 ? 0x991b1b : 0x020617);
-      weapon.art.rect(7, -weapon.muzzleLength, 7, weapon.muzzleLength).fill(this.frenzyTimerMs > 0 ? 0x991b1b : 0x020617);
-      weapon.art.rect(-3, -weapon.muzzleLength + 8, 6, weapon.muzzleLength - 8).fill(0x334155);
-    } else if (weapon.kind === 'missileLauncher') {
-      weapon.art.rect(-15, -weapon.muzzleLength, 12, weapon.muzzleLength).fill(this.frenzyTimerMs > 0 ? 0xef4444 : 0x94a3b8);
-      weapon.art.rect(3, -weapon.muzzleLength, 12, weapon.muzzleLength).fill(this.frenzyTimerMs > 0 ? 0xef4444 : 0x94a3b8);
-    } else if (weapon.kind === 'lightningGun') {
-      const coilActive = this.lightningArcs.some((arc) => arc.weapon === weapon);
+  private drawTurretArt(
+    art: Graphics,
+    kind: WeaponKind,
+    muzzleLength: number,
+    palette: TurretPalette,
+    pulse: number,
+    coilActive = false,
+  ): void {
+    art.circle(0, 0, 11 + pulse * 2).fill(palette.darkMetal).stroke({
+      width: 2 + pulse,
+      color: palette.mountStroke,
+    });
+
+    if (kind === 'railGun') {
+      art.rect(-6, -muzzleLength, 12, muzzleLength).fill(palette.barrelDark);
+      art.rect(-3, -muzzleLength - 14, 6, 16).fill(palette.barrelLight);
+    } else if (kind === 'machineGun') {
+      art.rect(-14, -muzzleLength, 7, muzzleLength).fill(palette.machineGunBarrel);
+      art.rect(7, -muzzleLength, 7, muzzleLength).fill(palette.machineGunBarrel);
+      art.rect(-3, -muzzleLength + 8, 6, muzzleLength - 8).fill(0x334155);
+    } else if (kind === 'missileLauncher') {
+      art.rect(-15, -muzzleLength, 12, muzzleLength).fill(palette.missileTube);
+      art.rect(3, -muzzleLength, 12, muzzleLength).fill(palette.missileTube);
+    } else if (kind === 'lightningGun') {
       const coilPulse = coilActive ? 0.55 + Math.sin(performance.now() / 55) * 0.25 : 0;
-      const coilColor = coilActive ? 0x9effff : 0x38bdf8;
-      weapon.art.rect(-5, -weapon.muzzleLength, 10, weapon.muzzleLength).fill(0x111827).stroke({
+      const coilColor = coilActive ? palette.lightningGlow : palette.lightningCoil;
+      art.rect(-5, -muzzleLength, 10, muzzleLength).fill(palette.darkMetal).stroke({
         width: 2,
-        color: coilActive ? 0xbfffff : 0x64748b,
+        color: coilActive ? palette.lightningGlow : palette.mountStroke,
       });
-      weapon.art.rect(-2, -weapon.muzzleLength - 12, 4, 14).fill(0xe0f2fe);
-      weapon.art.circle(0, -weapon.muzzleLength - 14, 5 + coilPulse * 3).fill({
-        color: coilActive ? 0xdfffff : 0xfacc15,
+      art.rect(-2, -muzzleLength - 12, 4, 14).fill(palette.barrelLight);
+      art.circle(0, -muzzleLength - 14, 5 + coilPulse * 3).fill({
+        color: coilActive ? palette.barrelLight : palette.lightningTip,
         alpha: coilActive ? 0.9 : 0.75,
       });
       for (let i = 0; i < 7; i += 1) {
-        const y = -10 - i * ((weapon.muzzleLength - 18) / 6);
+        const y = -10 - i * ((muzzleLength - 18) / 6);
         if (coilActive) {
-          weapon.art.ellipse(0, y, 16 + coilPulse * 8, 5 + coilPulse * 3).stroke({
+          art.ellipse(0, y, 16 + coilPulse * 8, 5 + coilPulse * 3).stroke({
             width: 5,
-            color: 0x67e8f9,
+            color: palette.lightningGlow,
             alpha: 0.18 + coilPulse * 0.28,
           });
         }
-        weapon.art.ellipse(0, y, 13, 4).stroke({
+        art.ellipse(0, y, 13, 4).stroke({
           width: coilActive ? 3 : 2,
           color: coilColor,
           alpha: coilActive ? 0.85 : 0.55,
         });
       }
-      weapon.art.moveTo(-14, -weapon.muzzleLength + 10).lineTo(14, -weapon.muzzleLength + 10).stroke({
+      art.moveTo(-14, -muzzleLength + 10).lineTo(14, -muzzleLength + 10).stroke({
         width: 2,
-        color: 0xb7f9ff,
+        color: palette.barrelLight,
         alpha: coilActive ? 0.95 : 0.55,
       });
     } else {
-      weapon.art.circle(0, -weapon.muzzleLength * 0.45, 12).fill(0xa78bfa);
-      weapon.art.rect(-4, -weapon.muzzleLength, 8, weapon.muzzleLength * 0.65).fill(0x4c1d95);
+      art.circle(0, -muzzleLength * 0.45, 12).fill(palette.droneShell);
+      art.rect(-4, -muzzleLength, 8, muzzleLength * 0.65).fill(palette.droneCore);
     }
   }
 
@@ -482,7 +516,7 @@ export class Game {
   private showQuestion(): void {
     this.selectedAnswerIndex = null;
     this.revealingAnswer = false;
-    const question = this.activeQuestions[this.currentQuestionIndex % this.activeQuestions.length];
+    const question = this.currentQuestion;
     this.questionText.text = question.prompt;
 
     this.questionButtons.forEach((button) => button.destroy({ children: true }));
@@ -506,7 +540,7 @@ export class Game {
 
   private drawButton(button: QuestionButton, width: number, height: number, index: number): void {
     const bg = button.children[0] as Graphics;
-    const question = this.activeQuestions[this.currentQuestionIndex % this.activeQuestions.length];
+    const question = this.currentQuestion;
     const isCorrectReveal = this.revealingAnswer && index === question.correctIndex;
     const isWrongReveal = this.revealingAnswer && index === this.selectedAnswerIndex && index !== question.correctIndex;
     const fillColor = isCorrectReveal ? 0x062d1c : isWrongReveal ? 0x3a0a0a : 0x0b1f33;
@@ -532,7 +566,7 @@ export class Game {
       return;
     }
 
-    const question = this.activeQuestions[this.currentQuestionIndex % this.activeQuestions.length];
+    const question = this.currentQuestion;
     this.selectedAnswerIndex = index;
     this.revealingAnswer = true;
     let shouldOpenUpgradeDialog = false;
@@ -563,7 +597,8 @@ export class Game {
     }
     this.pendingQuestionTimeout = window.setTimeout(() => {
       this.pendingQuestionTimeout = null;
-      this.currentQuestionIndex += 1;
+      const qlevel = Math.floor(this.upgradeCounter / UPGRADES_TO_NEXT_LEVEL) + 1;
+      this.currentQuestion = getQuestion(qlevel);
       this.showQuestion();
       this.drawHud();
       if (shouldOpenUpgradeDialog) {
@@ -839,44 +874,29 @@ export class Game {
   private createUpgradeTurretPreview(kind: WeaponKind): Container {
     const preview = new Container();
     const art = new Graphics();
-    const metal = 0x64748b;
-    const dark = 0x1f2937;
-    const light = 0xcbd5e1;
-    const stroke = 0x94a3b8;
+    const neutralPalette: TurretPalette = {
+      mountStroke: 0x94a3b8,
+      darkMetal: 0x1f2937,
+      barrelDark: 0x64748b,
+      barrelLight: 0xcbd5e1,
+      machineGunBarrel: 0x334155,
+      missileTube: 0x64748b,
+      lightningCoil: 0xcbd5e1,
+      lightningGlow: 0xcbd5e1,
+      lightningTip: 0x94a3b8,
+      droneShell: 0x64748b,
+      droneCore: 0x334155,
+    };
 
-    art.circle(0, 0, 13).fill(dark).stroke({ width: 2, color: stroke });
-
-    if (kind === 'railGun') {
-      art.rect(-6, -54, 12, 54).fill(metal).stroke({ width: 1, color: light, alpha: 0.7 });
-      art.rect(-3, -66, 6, 16).fill(light);
-      art.rect(-13, -46, 5, 30).fill(0x334155);
-      art.rect(8, -46, 5, 30).fill(0x334155);
-    } else if (kind === 'machineGun') {
-      art.rect(-15, -48, 7, 48).fill(dark).stroke({ width: 1, color: stroke });
-      art.rect(8, -48, 7, 48).fill(dark).stroke({ width: 1, color: stroke });
-      art.rect(-4, -38, 8, 36).fill(metal);
-      art.rect(-18, -54, 36, 8).fill(0x334155);
-    } else if (kind === 'missileLauncher') {
-      art.rect(-17, -50, 13, 50).fill(metal).stroke({ width: 1, color: light, alpha: 0.65 });
-      art.rect(4, -50, 13, 50).fill(metal).stroke({ width: 1, color: light, alpha: 0.65 });
-      art.poly([-16, -58, -4, -50, -17, -50], true).fill(light);
-      art.poly([5, -50, 17, -58, 18, -50], true).fill(light);
-    } else if (kind === 'lightningGun') {
-      art.rect(-5, -58, 10, 58).fill(dark).stroke({ width: 2, color: stroke });
-      art.rect(-2, -70, 4, 14).fill(light);
-      art.circle(0, -72, 5).fill(light).stroke({ width: 1, color: stroke });
-      for (let i = 0; i < 7; i += 1) {
-        art.ellipse(0, -10 - i * 8, 14, 4).stroke({ width: 2, color: light, alpha: 0.75 });
-      }
-    } else {
-      art.circle(0, -26, 13).fill(metal).stroke({ width: 2, color: stroke });
-      art.rect(-5, -46, 10, 34).fill(dark);
-      art.rect(-18, -22, 36, 6).fill(light);
-    }
+    this.drawTurretArt(art, kind, this.muzzleLengthForKind(kind), neutralPalette, 0, false);
 
     preview.addChild(art);
     preview.scale.set(0.72);
     return preview;
+  }
+
+  private muzzleLengthForKind(kind: WeaponKind): number {
+    return this.weapons.find((weapon) => weapon.kind === kind)?.muzzleLength ?? 56;
   }
 
   private closeUpgradeDialog(): void {
@@ -1339,7 +1359,6 @@ export class Game {
     this.destroyedEnemies = 0;
     this.spawnTimerMs = 1200;
     this.machineHp = Math.min(this.maxMachineHp, this.machineHp + 18);
-    this.currentQuestionIndex = 0;
     this.showQuestion();
   }
 
