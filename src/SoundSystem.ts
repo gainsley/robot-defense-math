@@ -52,7 +52,7 @@ export class SoundSystem {
 
   public weapon(kind: string): void {
     if (kind === 'railGun') {
-      sfx.lasrgun.play();
+      sfx.lasrgunPool.play({ rate: 0.5 + Math.random() * 1 });
       //this.sweep('rail', 220, 95, 95, 'triangle', 0.075, 0.08);
       //this.tone('rail', 130, 70, 'sine', 0.05, 0.08);
     } else if (kind === 'machineGun') {
@@ -79,14 +79,8 @@ export class SoundSystem {
     //this.tone('hit', 170, 55, 'square', 0.045, 0.05);
   }
 
-  private nextExplosionSound = 0;
-
   public explosion(_big = false): void {
-    //sfx.explosionImpact.play();
-    const sound = sfx.explosionPool[this.nextExplosionSound];
-    this.nextExplosionSound = (this.nextExplosionSound + 1) % sfx.explosionPool.length;
-    sound.rate(0.5 + Math.random() * 1);
-    sound.play();
+    sfx.explosionPool.play({ rate: 0.5 + Math.random() * 1 });
     if (_big) {
       sfx.explosion.play();
     }
@@ -98,11 +92,13 @@ export class SoundSystem {
   }
 
   public wrong(): void {
-    this.sweep('wrong', 210, 90, 180, 'sawtooth', 0.05, 0.09);
+    sfx.errtriplet.play();
+    //this.sweep('wrong', 210, 90, 180, 'sawtooth', 0.05, 0.09);
   }
 
   public frenzy(): void {
-    this.sweep('frenzy', 260, 980, 420, 'sawtooth', 0.06, 0.08);
+    sfx.frenzy.play();
+    //this.sweep('frenzy', 260, 980, 420, 'sawtooth', 0.06, 0.08);
   }
 
   public upgrade(): void {
@@ -112,7 +108,8 @@ export class SoundSystem {
   }
 
   public boss(): void {
-    this.sweep('boss', 90, 55, 520, 'sawtooth', 0.1, 0.1);
+    sfx.oneShotCinema.play()
+    //this.sweep('boss', 90, 55, 520, 'sawtooth', 0.1, 0.1);
   }
 
   public stage(): void {

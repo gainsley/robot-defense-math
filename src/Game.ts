@@ -827,15 +827,17 @@ export class Game {
         apply: () => this.unlockOrPowerUpWeapon('missileLauncher', 8, 0.92),
       },
       {
-        label: this.isUnlocked('lightningGun') ? 'Chain lightning' : 'Add lightning gun',
+        label: this.isUnlocked('lightningGun') ? 'Increased current' : 'Add lightning gun',
         description: 'Fast electric arcs that hit saucers instantly.',
         apply: () => this.unlockOrPowerUpWeapon('lightningGun', 4, 0.9),
       },
+      /*
       {
         label: this.isUnlocked('droneLauncher') ? 'More drones' : 'Add drone launcher',
         description: 'Autonomous side pods add extra fire.',
         apply: () => this.unlockOrPowerUpWeapon('droneLauncher', 3, 0.9),
       },
+      */
     ];
 
     return upgrades.sort(() => Math.random() - 0.5).slice(0, 3);
@@ -932,6 +934,9 @@ export class Game {
 
   private updateAim(): void {
     for (const weapon of this.weapons) {
+      if (weapon.kind === 'lightningGun') {
+        continue;
+      }
       const target = this.closestEnemyToWeapon(weapon);
       if (!weapon.unlocked || !target) {
         weapon.turret.rotation *= 0.9;
@@ -1006,7 +1011,7 @@ export class Game {
     const graphic = new Graphics();
     this.effects.spawnMuzzleFlash(muzzle.x, muzzle.y, weapon.turret.rotation, weapon.kind);
     this.effects.spawnImpact(target.x, target.y, weapon.kind);
-    const arc: LightningArc = { graphic, weapon, target, ageMs: 0, durationMs: 2000 };
+    const arc: LightningArc = { graphic, weapon, target, ageMs: 0, durationMs: 1500 };
     this.lightningArcs.push(arc);
     this.world.addChild(graphic);
     this.drawLightningArc(arc);
