@@ -19,6 +19,8 @@ export type QuestionGens = {
 }
 
 export type WeaponKind = 'railGun' | 'machineGun' | 'missileLauncher' | 'lightningGun' | 'droneLauncher';
+export type SystemUpgradeKind = 'reinforcedHull' | 'interceptorGun' | 'autoRepair';
+export type ArmamentKind = WeaponKind | SystemUpgradeKind;
 
 export type Weapon = {
   kind: WeaponKind;
@@ -38,7 +40,7 @@ export type Weapon = {
 export type Upgrade = {
   label: string;
   description: string;
-  weaponKind: WeaponKind;
+  armamentKind: ArmamentKind;
   apply: () => void;
 };
 
@@ -69,6 +71,7 @@ export type Projectile = {
   radius: number;
   fromEnemy: boolean;
   kind: WeaponKind | 'alienBolt';
+  homingTarget?: Enemy;
 };
 
 export type Explosion = {

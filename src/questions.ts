@@ -5,11 +5,20 @@ export const UPGRADES_TO_NEXT_LEVEL = 10;
 export const LEVEL_QUESTIONS: LevelQuestions[] = [
   {
     level: 1,
-    generators: [genAddSingleDigit, genSubSingleDigit],
+    generators: [genAddSingleDigit, genSubSingleDigit, genCompareSingleDigit],
   },
   {
     level: 2,
-    generators: [genAddSingleDigit, genSubSingleDigit, genAddDoubleDigit, genSubDoubleDigit],
+    generators: [
+      genAddSingleDigit,
+      genSubSingleDigit,
+      genAddDoubleDigit,
+      genSubDoubleDigit,
+      genCompareSingleDigit,
+      genCompareDoubleDigit,
+      genMult,
+      genDiv,
+    ],
   },
   /*
   {
@@ -39,11 +48,19 @@ function genSubSingleDigit(): Question {
 }
 
 function genAddDoubleDigit(): Question {
-  return genAddSubQ(false, 30);
+  return genAddSubQ(false, 15);
 }
 
 function genSubDoubleDigit(): Question {
-  return genAddSubQ(true, 30);
+  return genAddSubQ(true, 20);
+}
+
+function genCompareSingleDigit(): Question {
+  return genCompareDigits(11);
+}
+
+function genCompareDoubleDigit(): Question {
+  return genCompareDigits(21);
 }
 
 function genMult(): Question {
@@ -84,6 +101,7 @@ function genAddSubQ(subtract: boolean = false, range: number = 10): Question {
   return { prompt, choices, correctIndex };
 }
 
+
 function genMultDivQ(divide: boolean = false, range: number = 13): Question {
   let op1 = Math.floor(Math.random() * range);
   let op2 = Math.floor(Math.random() * range);
@@ -107,4 +125,37 @@ function genMultDivQ(divide: boolean = false, range: number = 13): Question {
     }
   }
   return { prompt, choices, correctIndex };
+}
+
+function genCompareDigits(range: number = 11): Question {
+  let op1 = Math.floor(Math.random() * range);
+  let op2 = Math.floor(Math.random() * range);
+  const opers = shuffle(['<', '>', '=']);
+  let correctIndex = 0;
+  let choices: string[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    let oper = opers[i];
+    let correct = (op1 < op2 && oper === '<') || (op1 > op2 && oper === '>') || (op1 === op2 && oper === '=');
+    if (correct) {
+      correctIndex = i;
+    }
+    choices.push(`${op1} ${oper} ${op2}`);
+  }
+  return {
+    prompt: 'Compare digits',
+    choices,
+    correctIndex,
+  }
+}
+
+function shuffle(array: any[]): any[] {
+  // Loop backwards through the array starting from the last element
+  for (let i = array.length - 1; i > 0; i--) {
+    // Pick a random index from 0 to i
+    const j = Math.floor(Math.random() * (i + 1));
+
+    // Swap elements array[i] and array[j] using destructuring assignment
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
 }

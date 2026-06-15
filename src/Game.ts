@@ -8,16 +8,24 @@ import {
   type FederatedPointerEvent,
   type Ticker,
 } from 'pixi.js';
-import { LEVEL_QUESTIONS, UPGRADES_TO_NEXT_LEVEL, getQuestion } from './questions';
+import { UPGRADES_TO_NEXT_LEVEL, getQuestion } from './questions';
 import { renderMathText } from './mathText';
 import { SoundSystem } from './SoundSystem';
 import { createInitialWeapons } from './weapons';
 import { EffectsSystem } from './EffectsSystem';
-import type { Enemy, Explosion, LightningArc, Projectile, Question, Upgrade, Weapon, WeaponKind } from './types';
+import type { ArmamentKind, Enemy, Explosion, LightningArc, Projectile, Question, Upgrade, Weapon, WeaponKind } from './types';
 
 type QuestionButton = Container & {
   answerText: string;
   labelLayer: Container;
+};
+
+type ArmamentTile = {
+  kind: ArmamentKind;
+  container: Container;
+  bg: Graphics;
+  icon: Graphics;
+  levelText: Text;
 };
 
 const DefaultFont = "Unitblock"
@@ -55,9 +63,29 @@ export class Game {
   private readonly upgradeBar = new Graphics();
   private readonly healthBar = new Graphics();
   private readonly enemyBar = new Graphics();
+  private readonly armamentsLayer = new Container();
+  private readonly armamentsLabel = new Text({
+    text: 'Armaments',
+    style: { fontFamily: DefaultMeterFont, fontSize: 16, fill: 0xb7f9ff, fontWeight: '700', letterSpacing: 1 },
+  });
+  private readonly tooltip = new Container();
+  private readonly tooltipBg = new Graphics();
+  private readonly tooltipText = new Text({
+    text: '',
+    style: {
+      fontFamily: DetailTextFont,
+      fontSize: 14,
+      fill: 0xe0f2fe,
+      wordWrap: true,
+      wordWrapWidth: 260,
+    },
+  });
   private readonly settingsButton = new Container();
   private readonly settingsButtonBg = new Graphics();
   private readonly settingsButtonIcon = new Graphics();
+  private readonly pauseButton = new Container();
+  private readonly pauseButtonBg = new Graphics();
+  private readonly pauseButtonIcon = new Graphics();
   private readonly debugUpgradeButton = new Container();
   private readonly debugUpgradeButtonBg = new Graphics();
   private readonly debugUpgradeButtonText = new Text({
@@ -100,14 +128,18 @@ export class Game {
   private explosions: Explosion[] = [];
   private lightningArcs: LightningArc[] = [];
   private questionButtons: QuestionButton[] = [];
+  private armamentTiles: ArmamentTile[] = [];
   private weapons: Weapon[] = [];
   private readonly maxMachineHp = 100;
   private machineHp = 100;
+  private reinforcedHullLevel = 0;
+  private interceptorGunLevel = 0;
+  private autoRepairLevel = 0;
+  private interceptorCooldownMs = 0;
   private totalEnemies = 24;
   private spawnedEnemies = 0;
   private destroyedEnemies = 0;
   private stage = 1;
-  private questionLevel = 1;
   private currentQuestion: Question = getQuestion(1);
   private waveMode: 'regular' | 'boss' = 'regular';
   private upgradeCounter = 0;
@@ -121,6 +153,7 @@ export class Game {
   private frenzyTimerMs = 0;
   private wasFrenzyActive = false;
   private paused = false;
+  private manualPaused = false;
   private layout = {
     width: 1,
     height: 1,
@@ -145,6 +178,12 @@ export class Game {
     this.settingsButton.eventMode = 'static';
     this.settingsButton.cursor = 'pointer';
     this.settingsButton.on('pointertap', () => this.openSettingsDialog());
+    this.pauseButton.addChild(this.pauseButtonBg, this.pauseButtonIcon);
+    this.pauseButton.eventMode = 'static';
+    this.pauseButton.cursor = 'pointer';
+    this.pauseButton.on('pointertap', () => this.toggleManualPause());
+    this.tooltip.addChild(this.tooltipBg, this.tooltipText);
+    this.tooltip.visible = false;
     this.debugUpgradeButton.addChild(this.debugUpgradeButtonBg, this.debugUpgradeButtonText);
     this.debugUpgradeButton.eventMode = 'static';
     this.debugUpgradeButton.cursor = 'pointer';
@@ -157,11 +196,14 @@ export class Game {
       this.upgradeBar,
       this.healthBar,
       this.enemyBar,
+      this.armamentsLayer,
       this.questionText,
       this.statusText,
       this.upgradeMeterText,
       this.comboMeterText,
+      this.tooltip,
       this.debugUpgradeButton,
+      this.pauseButton,
       this.settingsButton,
     );
     this.app.stage.addChild(this.scene);
@@ -177,28 +219,20 @@ export class Game {
   }
 
   private update(ticker: Ticker): void {
-    if (this.paused) {
+    if (this.paused || this.manualPaused) {
       return;
     }
 
     const dt = ticker.deltaMS;
-    this.spawnTimerMs -= dt;
     this.frenzyTimerMs = Math.max(0, this.frenzyTimerMs - dt);
-    this.machineHp = Math.min(this.maxMachineHp, this.machineHp + (3 / 1000) * dt);
+    this.machineHp = Math.min(this.maxMachineHp, this.machineHp + (this.currentRepairPerSecond() / 1000) * dt);
 
-    if (this.waveMode === 'regular' && this.spawnTimerMs <= 0 && this.spawnedEnemies < this.totalEnemies) {
-      // if no enemies, spawn 3, because they're getting killed faster than
-      // the spawn timer
-      let spawnCount = this.enemies.length == 0 ? 2 : 1;
-      for (let i = 0; i < spawnCount; i += 1) {
-        this.spawnEnemy();
-      }
-      this.spawnTimerMs = 2800;
-    }
+    this.updateRegularSpawning(dt);
 
     this.updateEnemies(dt);
     this.updateAim();
     this.updateWeapons(dt);
+    this.updateInterceptor(dt);
     this.updateProjectiles(dt);
     this.updateExplosions(dt);
     this.updateLightningArcs(dt);
@@ -236,6 +270,7 @@ export class Game {
     this.drawMachine();
     this.drawHud();
     this.drawSettingsButton();
+    this.drawPauseButton();
     this.drawDebugUpgradeButton();
     this.layoutQuestionControls();
   }
@@ -253,11 +288,45 @@ export class Game {
     this.drawGearIcon(this.settingsButtonIcon, buttonW / 2, buttonH / 2, 10);
   }
 
+  private drawPauseButton(): void {
+    const { playX, playW, height } = this.layout;
+    const buttonW = 42;
+    const buttonH = 34;
+    this.pauseButton.x = playX + playW - buttonW * 2 - 12;
+    this.pauseButton.y = height - buttonH - 14;
+    this.pauseButton.hitArea = new Rectangle(0, 0, buttonW, buttonH);
+    this.pauseButtonBg.clear();
+    this.pauseButtonBg.rect(0, 0, buttonW, buttonH).fill(this.manualPaused ? 0x102f4d : 0x0b1f33).stroke({
+      width: 2,
+      color: this.manualPaused ? 0xfacc15 : 0x38bdf8,
+    });
+    this.pauseButtonIcon.clear();
+    if (this.manualPaused) {
+      this.pauseButtonIcon
+        .moveTo(17, 10)
+        .lineTo(17, 24)
+        .lineTo(28, 17)
+        .closePath()
+        .fill(0xfef3c7);
+    } else {
+      this.pauseButtonIcon.rect(15, 10, 4, 14).fill(0xb7f9ff);
+      this.pauseButtonIcon.rect(23, 10, 4, 14).fill(0xb7f9ff);
+    }
+  }
+
+  private toggleManualPause(): void {
+    this.sounds.unlock();
+    this.manualPaused = !this.manualPaused;
+    this.drawPauseButton();
+    this.drawHud();
+    this.layoutQuestionControls();
+  }
+
   private drawDebugUpgradeButton(): void {
     const { playX, playW, height } = this.layout;
     const buttonW = 104;
     const buttonH = 34;
-    this.debugUpgradeButton.x = playX + playW - buttonW - 56;
+    this.debugUpgradeButton.x = playX + playW - buttonW - 102;
     this.debugUpgradeButton.y = height - buttonH - 14;
     this.debugUpgradeButton.hitArea = new Rectangle(0, 0, buttonW, buttonH);
     this.debugUpgradeButtonBg.clear();
@@ -453,8 +522,11 @@ export class Game {
 
     this.comboBar.clear();
     this.upgradeBar.clear();
-    const upgradeY = controlsY + 34;
-    const comboY = controlsY + 78;
+    const armamentsY = controlsY + 30;
+    const upgradeY = controlsY + 74;
+    const comboY = controlsY + 118;
+
+    this.drawArmamentsHud(armamentsY);
 
     this.upgradeBar.rect(playX, upgradeY, playW, 30).fill(0x06131f).stroke({ width: 2, color: 0xa78bfa });
     this.upgradeBar.rect(playX + 4, upgradeY + 4, Math.max(0, (playW - 8) * upgradePct), 22).fill(0x8b5cf6);
@@ -482,9 +554,216 @@ export class Game {
     this.comboMeterText.anchor.set(0.5, 0);
 
     const waveLabel = this.waveMode === 'boss' ? 'BOSS WAVE' : `Enemies left: ${regularEnemiesLeft}`;
-    this.statusText.text = `Stage: ${this.stage}   Robot upgrades: ${this.upgradeCounter}   Combo: ${this.combo}/${this.maxCombo}   ${waveLabel}`;
+    const pauseLabel = this.manualPaused ? '   PAUSED' : '';
+    this.statusText.text = `Stage: ${this.stage}   Robot upgrades: ${this.upgradeCounter}   Combo: ${this.combo}/${this.maxCombo}   ${waveLabel}${pauseLabel}`;
     this.statusText.x = playX;
     this.statusText.y = controlsY + 4;
+  }
+
+  private drawArmamentsHud(y: number): void {
+    const { playX, playW } = this.layout;
+    const tileSize = 34;
+    const gap = 8;
+    const items = this.armamentKinds();
+
+    this.armamentsLayer.x = 0;
+    this.armamentsLayer.y = 0;
+    this.armamentsLabel.x = playX;
+    this.armamentsLabel.y = y + 8;
+    if (!this.armamentsLabel.parent) {
+      this.armamentsLayer.addChild(this.armamentsLabel);
+    }
+
+    this.ensureArmamentTiles(items);
+
+    const startX = playX + 118;
+    const maxTiles = Math.max(1, Math.floor((playW - 118) / (tileSize + gap)));
+    this.armamentTiles.forEach((tile, index) => {
+      const row = Math.floor(index / maxTiles);
+      const col = index % maxTiles;
+      tile.container.x = startX + col * (tileSize + gap);
+      tile.container.y = y + row * (tileSize + 4);
+      this.drawArmamentTile(tile, tileSize);
+    });
+  }
+
+  private ensureArmamentTiles(items: ArmamentKind[]): void {
+    const existingKinds = this.armamentTiles.map((tile) => tile.kind).join('|');
+    if (existingKinds === items.join('|')) {
+      return;
+    }
+
+    this.armamentTiles.forEach((tile) => tile.container.destroy({ children: true }));
+    this.armamentTiles = items.map((kind) => this.createArmamentTile(kind));
+    this.armamentTiles.forEach((tile) => this.armamentsLayer.addChild(tile.container));
+  }
+
+  private createArmamentTile(kind: ArmamentKind): ArmamentTile {
+    const container = new Container();
+    const bg = new Graphics();
+    const icon = new Graphics();
+    const levelText = new Text({
+      text: '',
+      style: { fontFamily: DefaultFont, fontSize: 12, fill: 0xffffff, fontWeight: '700' },
+    });
+    levelText.anchor.set(1, 1);
+    container.addChild(bg, icon, levelText);
+    container.eventMode = 'static';
+    container.cursor = 'help';
+    container.hitArea = new Rectangle(0, 0, 34, 34);
+    container.on('pointerover', () => this.showArmamentTooltip(kind, container.x, container.y));
+    container.on('pointerout', () => this.hideArmamentTooltip());
+    container.on('pointermove', () => {
+      if (this.tooltip.visible) {
+        this.positionTooltip(container.x, container.y);
+      }
+    });
+
+    return { kind, container, bg, icon, levelText };
+  }
+
+  private drawArmamentTile(tile: ArmamentTile, size: number): void {
+    const level = this.armamentLevel(tile.kind);
+    const enabled = level > 0;
+
+    tile.bg.clear();
+    tile.bg.rect(0, 0, size, size).fill(enabled ? 0x0b1f33 : 0x071421).stroke({
+      width: 2,
+      color: enabled ? 0x38bdf8 : 0x475569,
+      alpha: enabled ? 1 : 0.8,
+    });
+    tile.bg.rect(4, 4, size - 8, size - 8).stroke({ width: 1, color: enabled ? 0x7dd3fc : 0x334155, alpha: 0.55 });
+
+    tile.icon.clear();
+    tile.icon.x = size / 2;
+    tile.icon.y = size / 2 + 3;
+    this.drawArmamentIcon(tile.icon, tile.kind, enabled);
+
+    tile.levelText.text = `${level}`;
+    tile.levelText.x = size - 5;
+    tile.levelText.y = size - 4;
+  }
+
+  private drawArmamentIcon(icon: Graphics, kind: ArmamentKind, enabled: boolean): void {
+    const color = enabled ? 0xb7f9ff : 0x64748b;
+    icon.clear();
+
+    if (this.isWeaponKind(kind)) {
+      const neutralPalette: TurretPalette = {
+        mountStroke: color,
+        darkMetal: 0x1f2937,
+        barrelDark: color,
+        barrelLight: 0xe2e8f0,
+        machineGunBarrel: color,
+        missileTube: color,
+        lightningCoil: color,
+        lightningGlow: color,
+        lightningTip: color,
+        droneShell: color,
+        droneCore: 0x334155,
+      };
+      this.drawTurretArt(icon, kind, 24, neutralPalette, 0, false);
+      icon.scale.set(0.28);
+      return;
+    }
+
+    icon.scale.set(1);
+    if (kind === 'reinforcedHull') {
+      icon.moveTo(0, -13).lineTo(12, -7).lineTo(9, 11).lineTo(0, 15).lineTo(-9, 11).lineTo(-12, -7).closePath()
+        .fill({ color, alpha: 0.9 })
+        .stroke({ width: 2, color: enabled ? 0xe0f2fe : 0x94a3b8 });
+    } else if (kind === 'interceptorGun') {
+      icon.rect(-3, -14, 6, 23).fill(color);
+      icon.rect(-10, -6, 20, 5).fill(color);
+      icon.circle(0, 10, 5).fill(0x1f2937).stroke({ width: 2, color });
+    } else {
+      icon.moveTo(0, -13).lineTo(0, 13).stroke({ width: 5, color, cap: 'round' });
+      icon.moveTo(-13, 0).lineTo(13, 0).stroke({ width: 5, color, cap: 'round' });
+      icon.circle(0, 0, 10).stroke({ width: 2, color: enabled ? 0x22c55e : 0x64748b, alpha: 0.8 });
+    }
+  }
+
+  private showArmamentTooltip(kind: ArmamentKind, x: number, y: number): void {
+    this.tooltipText.text = this.armamentTooltip(kind);
+    this.tooltipBg.clear();
+    this.tooltipBg.rect(0, 0, 280, Math.max(70, this.tooltipText.height + 24)).fill(0x020617).stroke({
+      width: 2,
+      color: 0x38bdf8,
+      alpha: 0.95,
+    });
+    this.tooltipText.x = 12;
+    this.tooltipText.y = 10;
+    this.tooltip.visible = true;
+    this.positionTooltip(x, y);
+  }
+
+  private positionTooltip(x: number, y: number): void {
+    const tooltipW = 280;
+    const tooltipH = this.tooltipBg.height || 80;
+    this.tooltip.x = Math.min(this.layout.width - tooltipW - 12, x + 10);
+    this.tooltip.y = Math.max(12, y - tooltipH - 8);
+  }
+
+  private hideArmamentTooltip(): void {
+    this.tooltip.visible = false;
+  }
+
+  private armamentKinds(): ArmamentKind[] {
+    return ['railGun', 'machineGun', 'missileLauncher', 'lightningGun', 'reinforcedHull', 'interceptorGun', 'autoRepair'];
+  }
+
+  private isWeaponKind(kind: ArmamentKind): kind is WeaponKind {
+    return ['railGun', 'machineGun', 'missileLauncher', 'lightningGun', 'droneLauncher'].includes(kind);
+  }
+
+  private armamentLevel(kind: ArmamentKind): number {
+    if (this.isWeaponKind(kind)) {
+      return this.weapons.find((weapon) => weapon.kind === kind)?.level ?? 0;
+    }
+
+    if (kind === 'reinforcedHull') {
+      return this.reinforcedHullLevel;
+    }
+    if (kind === 'interceptorGun') {
+      return this.interceptorGunLevel;
+    }
+    return this.autoRepairLevel;
+  }
+
+  private armamentLabel(kind: ArmamentKind): string {
+    if (this.isWeaponKind(kind)) {
+      return this.weapons.find((weapon) => weapon.kind === kind)?.label ?? kind;
+    }
+    if (kind === 'reinforcedHull') {
+      return 'Reinforced hull';
+    }
+    if (kind === 'interceptorGun') {
+      return 'Interceptor gun';
+    }
+    return 'Auto-repair';
+  }
+
+  private armamentTooltip(kind: ArmamentKind): string {
+    const level = this.armamentLevel(kind);
+    if (this.isWeaponKind(kind)) {
+      const weapon = this.weapons.find((candidate) => candidate.kind === kind);
+      if (!weapon) {
+        return `${this.armamentLabel(kind)}\nLevel 0`;
+      }
+      return `${weapon.label}\nLevel ${weapon.level}\nDamage: ${weapon.damage} per shot\nFire rate: ${this.formatShotsPerSecond(weapon.fireRateMs)} shots/sec`;
+    }
+
+    if (kind === 'reinforcedHull') {
+      return `Reinforced hull\nLevel ${level}\nDamage reduction: ${Math.round(this.currentDamageReduction() * 100)}%`;
+    }
+    if (kind === 'interceptorGun') {
+      return `Interceptor gun\nLevel ${level}\nShoots down enemy projectiles\nFire rate: ${level > 0 ? this.formatShotsPerSecond(this.currentInterceptorFireRateMs()) : '0'} shots/sec`;
+    }
+    return `Auto-repair\nLevel ${level}\nRepair rate: ${this.currentRepairPerSecond().toFixed(1)} HP/sec`;
+  }
+
+  private formatShotsPerSecond(fireRateMs: number): string {
+    return (1000 / Math.max(1, fireRateMs)).toFixed(2);
   }
 
   private frenzyPulse(): number {
@@ -498,11 +777,11 @@ export class Game {
   private layoutQuestionControls(): void {
     const { playX, playW, controlsY } = this.layout;
     this.questionText.x = playX;
-    this.questionText.y = controlsY + 136;
+    this.questionText.y = controlsY + 176;
     this.questionText.style.wordWrap = true;
     this.questionText.style.wordWrapWidth = playW;
 
-    const buttonY = controlsY + 184;
+    const buttonY = controlsY + 224;
     const gap = 12;
     const buttonW = (playW - gap * 2) / 3;
 
@@ -556,13 +835,13 @@ export class Game {
     button.labelLayer.x = width / 2;
     button.labelLayer.y = height / 2;
     button.hitArea = new Rectangle(0, 0, width, height);
-    button.alpha = this.paused && !this.revealingAnswer ? 0.5 : 1;
+    button.alpha = (this.paused || this.manualPaused) && !this.revealingAnswer ? 0.5 : 1;
     button.zIndex = index;
   }
 
   private answerQuestion(index: number): void {
     this.sounds.unlock();
-    if (this.paused || this.revealingAnswer) {
+    if (this.paused || this.manualPaused || this.revealingAnswer) {
       return;
     }
 
@@ -617,13 +896,22 @@ export class Game {
       return;
     }
 
-    const targets = [...this.enemies].sort((a, b) => a.x - b.x);
+    const targets = this.shuffledEnemies();
     for (let i = 0; i < 18; i += 1) {
       const target = targets[i % targets.length];
       const startX = this.layout.machineX - 132 + i * 15;
       const startY = this.layout.machineY - 42 - (i % 3) * 10;
       this.spawnTargetedProjectile(startX, startY, target, 580 + (i % 4) * 35, 34, 6, 'missileLauncher');
     }
+  }
+
+  private shuffledEnemies(): Enemy[] {
+    const enemies = [...this.enemies];
+    for (let i = enemies.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [enemies[i], enemies[j]] = [enemies[j], enemies[i]];
+    }
+    return enemies;
   }
 
   private spawnTargetedProjectile(
@@ -647,6 +935,7 @@ export class Game {
       radius,
       fromEnemy: false,
       kind,
+      homingTarget: kind === 'missileLauncher' ? target : undefined,
     });
   }
 
@@ -840,6 +1129,12 @@ export class Game {
     });
     title.x = 12;
     title.y = 14;
+    const levelText = new Text({
+      text: `Lvl ${this.armamentLevel(upgrade.armamentKind)} -> ${this.armamentLevel(upgrade.armamentKind) + 1}`,
+      style: { fontFamily: DefaultFont, fontSize: 14, fill: 0x86efac, fontWeight: '700', letterSpacing: 1 },
+    });
+    levelText.x = 12;
+    levelText.y = 48;
     const description = new Text({
       text: upgrade.description,
       style: {
@@ -851,13 +1146,13 @@ export class Game {
       },
     });
     description.x = 12;
-    description.y = 70;
+    description.y = 74;
 
-    const preview = this.createUpgradeTurretPreview(upgrade.weaponKind);
+    const preview = this.createUpgradePreview(upgrade.armamentKind);
     preview.x = width / 2;
     preview.y = Math.min(height - 18, description.y + description.height + 58);
 
-    card.addChild(bg, title, description, preview);
+    card.addChild(bg, title, levelText, description, preview);
     card.eventMode = 'static';
     card.cursor = 'pointer';
     card.hitArea = new Rectangle(0, 0, width, height);
@@ -871,7 +1166,7 @@ export class Game {
     return card;
   }
 
-  private createUpgradeTurretPreview(kind: WeaponKind): Container {
+  private createUpgradePreview(kind: ArmamentKind): Container {
     const preview = new Container();
     const art = new Graphics();
     const neutralPalette: TurretPalette = {
@@ -888,10 +1183,15 @@ export class Game {
       droneCore: 0x334155,
     };
 
-    this.drawTurretArt(art, kind, this.muzzleLengthForKind(kind), neutralPalette, 0, false);
+    if (this.isWeaponKind(kind)) {
+      this.drawTurretArt(art, kind, this.muzzleLengthForKind(kind), neutralPalette, 0, false);
+    } else {
+      this.drawArmamentIcon(art, kind, true);
+      art.scale.set(2.2);
+    }
 
     preview.addChild(art);
-    preview.scale.set(0.72);
+    preview.scale.set(this.isWeaponKind(kind) ? 0.72 : 1);
     return preview;
   }
 
@@ -911,26 +1211,50 @@ export class Game {
       {
         label: 'Tune rail gun',
         description: 'Rail gun damage goes up and it cycles faster.',
-        weaponKind: 'railGun',
+        armamentKind: 'railGun',
         apply: () => this.powerUpWeapon('railGun', 5, 0.9),
       },
       {
         label: this.isUnlocked('machineGun') ? 'Overclock machine gun' : 'Add machine gun',
         description: 'Fires bursts of five small rounds.',
-        weaponKind: 'machineGun',
+        armamentKind: 'machineGun',
         apply: () => this.unlockOrPowerUpWeapon('machineGun', 2, 0.88),
       },
       {
         label: this.isUnlocked('missileLauncher') ? 'Bigger missiles' : 'Add missile launcher',
         description: 'Slow, heavy shots with large explosions.',
-        weaponKind: 'missileLauncher',
+        armamentKind: 'missileLauncher',
         apply: () => this.unlockOrPowerUpWeapon('missileLauncher', 8, 0.92),
       },
       {
         label: this.isUnlocked('lightningGun') ? 'Increased current' : 'Add lightning gun',
         description: 'Fast electric arcs that hit saucers instantly.',
-        weaponKind: 'lightningGun',
+        armamentKind: 'lightningGun',
         apply: () => this.unlockOrPowerUpWeapon('lightningGun', 4, 0.9),
+      },
+      {
+        label: 'Reinforced hull',
+        description: 'Reduces damage taken from enemy shots.',
+        armamentKind: 'reinforcedHull',
+        apply: () => {
+          this.reinforcedHullLevel += 1;
+        },
+      },
+      {
+        label: 'Interceptor gun',
+        description: 'Shoots down incoming enemy projectiles.',
+        armamentKind: 'interceptorGun',
+        apply: () => {
+          this.interceptorGunLevel += 1;
+        },
+      },
+      {
+        label: 'Auto-repair',
+        description: 'Automatically repairs the machine over time.',
+        armamentKind: 'autoRepair',
+        apply: () => {
+          this.autoRepairLevel += 1;
+        },
       },
       /*
       {
@@ -1013,6 +1337,45 @@ export class Game {
     this.fireLinearProjectile(weapon, target, 0, 720, 4);
   }
 
+  private updateInterceptor(dt: number): void {
+    if (this.interceptorGunLevel <= 0) {
+      return;
+    }
+
+    this.interceptorCooldownMs -= dt;
+    if (this.interceptorCooldownMs > 0) {
+      return;
+    }
+
+    const targetIndex = this.projectiles.findIndex((projectile) => projectile.fromEnemy);
+    if (targetIndex < 0) {
+      return;
+    }
+
+    const projectile = this.projectiles[targetIndex];
+    const beam = new Graphics();
+    beam.moveTo(this.layout.machineX, this.layout.machineY - 28)
+      .lineTo(projectile.x, projectile.y)
+      .stroke({ width: 2, color: 0xb7f9ff, alpha: 0.9, cap: 'round' });
+    this.world.addChild(beam);
+    this.explosions.push({ graphic: beam, x: projectile.x, y: projectile.y, ageMs: 0, durationMs: 100, maxRadius: 0 });
+    this.effects.spawnImpact(projectile.x, projectile.y, 'railGun');
+    this.removeProjectile(targetIndex);
+    this.interceptorCooldownMs = this.currentInterceptorFireRateMs();
+  }
+
+  private currentDamageReduction(): number {
+    return Math.min(0.6, this.reinforcedHullLevel * 0.1);
+  }
+
+  private currentRepairPerSecond(): number {
+    return 3 + this.autoRepairLevel * 1.8;
+  }
+
+  private currentInterceptorFireRateMs(): number {
+    return Math.max(220, 950 - this.interceptorGunLevel * 130);
+  }
+
   private fireLinearProjectile(weapon: Weapon, target: Enemy, offsetX: number, speed: number, radius: number): void {
     const muzzle = this.turretMuzzle(weapon, offsetX);
     const startX = muzzle.x;
@@ -1030,6 +1393,7 @@ export class Game {
       radius,
       fromEnemy: false,
       kind: weapon.kind,
+      homingTarget: weapon.kind === 'missileLauncher' ? target : undefined,
     });
   }
 
@@ -1200,7 +1564,8 @@ export class Game {
 
       if (projectile.fromEnemy) {
         if (Math.hypot(projectile.x - this.layout.machineX, projectile.y - this.layout.machineY) < 34) {
-          this.machineHp = Math.max(0, this.machineHp - projectile.damage);
+          const mitigatedDamage = projectile.damage * (1 - this.currentDamageReduction());
+          this.machineHp = Math.max(0, this.machineHp - mitigatedDamage);
           this.sounds.hit();
           this.effects.spawnImpact(projectile.x, projectile.y, projectile.kind);
           this.spawnExplosion(projectile.x, projectile.y, 1);
@@ -1228,9 +1593,11 @@ export class Game {
       return;
     }
 
-    const target = this.enemies
-      .slice()
-      .sort((a, b) => Math.hypot(a.x - projectile.x, a.y - projectile.y) - Math.hypot(b.x - projectile.x, b.y - projectile.y))[0];
+    let target = projectile.homingTarget;
+    if (!target || target.hp <= 0 || !this.enemies.includes(target)) {
+      target = this.closestEnemyToProjectile(projectile);
+      projectile.homingTarget = target;
+    }
     if (!target) {
       return;
     }
@@ -1243,6 +1610,12 @@ export class Game {
 
     projectile.vx = Math.cos(nextAngle) * speed;
     projectile.vy = Math.sin(nextAngle) * speed;
+  }
+
+  private closestEnemyToProjectile(projectile: Projectile): Enemy | undefined {
+    return this.enemies
+      .slice()
+      .sort((a, b) => Math.hypot(a.x - projectile.x, a.y - projectile.y) - Math.hypot(b.x - projectile.x, b.y - projectile.y))[0];
   }
 
   private shortestAngleDelta(from: number, to: number, maxDelta: number): number {
@@ -1267,6 +1640,44 @@ export class Game {
   private removeProjectile(index: number): void {
     const [projectile] = this.projectiles.splice(index, 1);
     projectile.graphic.destroy();
+  }
+
+  private updateRegularSpawning(dt: number): void {
+    if (this.waveMode !== 'regular') {
+      return;
+    }
+
+    this.spawnTimerMs -= dt;
+    this.spawnUntilMinimumRegularEnemies();
+
+    if (this.spawnTimerMs <= 0 && this.canSpawnRegularEnemy()) {
+      this.spawnEnemy();
+      this.spawnTimerMs = this.currentSpawnDelayMs();
+    }
+  }
+
+  private spawnUntilMinimumRegularEnemies(): void {
+    const minimumEnemies = 2;
+    let liveRegularEnemies = this.enemies.filter((enemy) => enemy.kind === 'small' && enemy.hp > 0).length;
+
+    while (liveRegularEnemies < minimumEnemies && this.canSpawnRegularEnemy()) {
+      this.spawnEnemy();
+      liveRegularEnemies += 1;
+      this.spawnTimerMs = Math.max(this.spawnTimerMs, this.currentSpawnDelayMs() * 0.45);
+    }
+  }
+
+  private canSpawnRegularEnemy(): boolean {
+    return this.spawnedEnemies < this.totalEnemies;
+  }
+
+  private currentSpawnDelayMs(): number {
+    const baseDelayMs = 2800;
+    const minDelayMs = 650;
+    const killMultiplier = 0.02;
+    const scaledDelay = baseDelayMs / (1 + this.destroyedEnemies * killMultiplier);
+
+    return Math.max(minDelayMs, scaledDelay);
   }
 
   private spawnEnemy(kind: Enemy['kind'] = 'small', x?: number): void {
